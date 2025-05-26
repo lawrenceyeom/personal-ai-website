@@ -288,7 +288,8 @@ export const MODEL_MAPPING: Record<string, {
       thinking: false,
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // OpenAI支持直接PDF上传
     }
   },
   'gpt-4.1-nano': {
@@ -304,7 +305,8 @@ export const MODEL_MAPPING: Record<string, {
       thinking: false,
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // OpenAI支持直接PDF上传
     }
   },
 
@@ -319,7 +321,8 @@ export const MODEL_MAPPING: Record<string, {
       thinking: true,
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // o3支持PDF文档
     }
   },
   'o3-mini': {
@@ -333,6 +336,7 @@ export const MODEL_MAPPING: Record<string, {
       tools: true,
       vision: false,
       system_instructions: true
+      // 注意：o3-mini不支持vision，因此不支持PDF文档输入
     }
   },
   'o4-mini': {
@@ -345,7 +349,8 @@ export const MODEL_MAPPING: Record<string, {
       thinking: true,
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // o4-mini支持PDF文档
     }
   },
 
@@ -362,7 +367,8 @@ export const MODEL_MAPPING: Record<string, {
       stop_sequences: { max_count: 4 },
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // gpt-4o支持PDF文档
     }
   },
   'gpt-4o-mini': { 
@@ -377,7 +383,8 @@ export const MODEL_MAPPING: Record<string, {
       stop_sequences: { max_count: 4 },
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // gpt-4o-mini支持PDF文档
     }
   },
   'o1-mini': { 
@@ -389,7 +396,8 @@ export const MODEL_MAPPING: Record<string, {
       tools: false,
       vision: false,
       system_instructions: false,
-      thinking: true
+      thinking: true,
+      documents: true // o1-mini支持PDF文档
     }
   },
 
@@ -488,7 +496,8 @@ export const MODEL_MAPPING: Record<string, {
       thinking: true,
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // Gemini支持原生文档处理
     }
   },
 
@@ -505,7 +514,8 @@ export const MODEL_MAPPING: Record<string, {
       thinking: false,
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // Gemini支持原生文档处理
     }
   },
   'gemini-1.5-flash': { 
@@ -520,7 +530,8 @@ export const MODEL_MAPPING: Record<string, {
       thinking: false,
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // Gemini支持原生文档处理
     }
   },
 

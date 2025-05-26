@@ -3,7 +3,9 @@ import { callLLMStream, LLMRequest } from '../../utils/llmProviders';
 
 export const config = {
   api: {
-    bodyParser: false,
+    bodyParser: {
+      sizeLimit: '10mb', // 支持最大10MB的请求体
+    },
   },
 };
 
@@ -19,13 +21,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader('Content-Encoding', 'none'); // Important for SSE
   res.flushHeaders(); // Flush the headers to establish the connection early
 
-  let body = '';
-  req.on('data', chunk => { body += chunk; });
-  req.on('end', async () => {
-    try {
-      const parsedRequest: LLMRequest = JSON.parse(body); 
-      console.log('[API Chat DEBUG] Received body:', body);
-      console.log('[API Chat DEBUG] Parsed request before api_options processing:', JSON.stringify(parsedRequest));
+  try {
+    // 直接使用Next.js的内置body parser
+    const parsedRequest: LLMRequest = req.body; 
+      console.log('[API Chat DEBUG] Received request body');
+      console.log('[API Chat DEBUG] Parsed request before api_options processing:', JSON.stringify(parsedRequest, null, 2));
       
       // Handle api_options properly
       if (parsedRequest.api_options) {
@@ -90,13 +90,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.log('[API Chat DEBUG] Streaming completed, sending [DONE]');
       res.write('data: [DONE]\n\n');
       res.end();
-    } catch (error: any) {
-      console.error('[API Chat DEBUG] Error in API route:', error);
-      res.write(`data: ${JSON.stringify({ 
-        error: "API error", 
-        details: error.message || "Unknown server error" 
-      })}\n\n`);
-      res.end();
-    }
-  });
+  } catch (error: any) {
+    console.error('[API Chat DEBUG] Error in API route:', error);
+    res.write(`data: ${JSON.stringify({ 
+      error: "API error", 
+      details: error.message || "Unknown server error" 
+    })}\n\n`);
+    res.end();
+  }
 } 

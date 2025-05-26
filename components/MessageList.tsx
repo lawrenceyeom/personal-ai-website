@@ -149,20 +149,25 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                           <td {...props} className="border border-[#233056] px-4 py-2 text-gray-300" />
                         ),
                         pre: ({ node, children, ...props }) => {
-                                                  const codeChild = React.Children.toArray(children).find(
-                          (child) => React.isValidElement(child) && child.type === 'code'
-                        ) as React.ReactElement<{ className?: string }> | undefined;
-                        const codeClassName = codeChild?.props?.className || '';
+                          const codeChild = React.Children.toArray(children).find(
+                            (child) => React.isValidElement(child) && child.type === 'code'
+                          ) as React.ReactElement<{ className?: string }> | undefined;
+                          const codeClassName = codeChild?.props?.className || '';
                           const isCodeBlock = /language-(\w+)/.exec(codeClassName);
+                          
+                          // 检查是否是多行代码块（即使没有语言标识）
+                          const codeContent = (codeChild?.props as any)?.children;
+                          const isMultiLineCode = typeof codeContent === 'string' && 
+                            (codeContent.includes('\n') || codeContent.length > 50);
 
-                          if (isCodeBlock) {
+                          if (isCodeBlock || isMultiLineCode) {
                             return (
                               <div className="relative group/code-block my-2 text-sm">
                                 <button
-                                  className="copy-btn absolute top-2 right-2 text-xs bg-[#233056] text-[#7dd3fc] px-2 py-1 rounded shadow hover:bg-[#2563eb] opacity-0 group-hover/code-block:opacity-100 transition border border-[#2563eb]"
+                                  className="copy-btn absolute top-2 right-2 text-xs bg-[#233056] text-[#7dd3fc] px-2 py-1 rounded shadow hover:bg-[#2563eb] opacity-0 group-hover/code-block:opacity-100 transition border border-[#2563eb] z-10"
                                   title="复制代码"
                                 >复制</button>
-                                <pre {...props} className={(props.className || '') + " bg-[#101624] rounded-lg border border-[#233056] p-3 overflow-x-auto"}>
+                                <pre {...props} className={(props.className || '') + " bg-[#101624] rounded-lg border border-[#233056] p-3 pr-16 overflow-x-auto relative"}>
                                   {children}
                                 </pre>
                               </div>
@@ -236,21 +241,26 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                       td: ({ node, ...props }) => (
                         <td {...props} className="border border-[#233056] px-4 py-2 text-white" />
                       ),
-                      pre: ({ node, children, ...props }) => {
+                                              pre: ({ node, children, ...props }) => {
                         const codeChild = React.Children.toArray(children).find(
                           (child) => React.isValidElement(child) && child.type === 'code'
                         ) as React.ReactElement<{ className?: string }> | undefined;
                         const codeClassName = codeChild?.props?.className || '';
                         const isCodeBlock = /language-(\w+)/.exec(codeClassName);
+                        
+                        // 检查是否是多行代码块（即使没有语言标识）
+                        const codeContent = (codeChild?.props as any)?.children;
+                        const isMultiLineCode = typeof codeContent === 'string' && 
+                          (codeContent.includes('\n') || codeContent.length > 50);
 
-                        if (isCodeBlock) {
+                        if (isCodeBlock || isMultiLineCode) {
                           return (
                             <div className="relative group/code-block my-2 text-base">
                               <button
-                                className="copy-btn absolute top-2 right-2 text-xs bg-[#233056] text-[#7dd3fc] px-2 py-1 rounded shadow hover:bg-[#2563eb] opacity-0 group-hover/code-block:opacity-100 transition border border-[#2563eb]"
+                                className="copy-btn absolute top-2 right-2 text-xs bg-[#233056] text-[#7dd3fc] px-2 py-1 rounded shadow hover:bg-[#2563eb] opacity-0 group-hover/code-block:opacity-100 transition border border-[#2563eb] z-10"
                                 title="复制代码"
                               >复制</button>
-                              <pre {...props} className={(props.className || '') + " bg-[#101624] rounded-lg border border-[#233056] p-3 overflow-x-auto"}>
+                              <pre {...props} className={(props.className || '') + " bg-[#101624] rounded-lg border border-[#233056] p-3 pr-16 overflow-x-auto relative"}>
                                 {children}
                               </pre>
                             </div>

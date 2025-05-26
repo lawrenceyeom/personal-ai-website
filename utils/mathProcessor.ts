@@ -10,6 +10,14 @@ export function preprocessMath(content: string): string {
   if (!content) return content;
 
   let processed = content;
+  
+  // 防止重复处理：如果内容已经包含大量$符号，可能已经被处理过
+  const dollarCount = (processed.match(/\$/g) || []).length;
+  const totalLength = processed.length;
+  if (dollarCount > 0 && dollarCount / totalLength > 0.05) {
+    // 如果$符号密度超过5%，可能已经被处理过，直接返回
+    return processed;
+  }
 
   // 首先处理LaTeX显示数学公式格式：\[ formula \]
   // 将 \[ E(R_i) = ... \] 转换为 $$E(R_i) = ...$$
@@ -27,8 +35,12 @@ export function preprocessMath(content: string): string {
   // 只处理行首或前面有空格/标点的方括号，避免处理LaTeX命令中的方括号
   // 更严格的匹配，确保方括号内包含数学符号
   processed = processed.replace(/(^|[\s\n:：])\[\s*([^[\]]*(?:[=+\-*/^_{}\\]|\\[a-zA-Z]+)[^[\]]*)\s*\]/gm, (match, prefix, formula) => {
-    // 如果方括号内已经包含$符号，直接返回
+    // 如果方括号内已经包含$符号，直接返回原文
     if (formula.includes('$')) {
+      return match;
+    }
+    // 如果公式已经被处理过（包含LaTeX命令），跳过
+    if (formula.includes('\\beta') || formula.includes('\\alpha') || formula.includes('\\frac')) {
       return match;
     }
     // 转换为行内公式

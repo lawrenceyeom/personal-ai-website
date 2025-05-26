@@ -325,6 +325,22 @@ export default function HomePage() {
       content: input,
       ...(uploadedImage && { imageUrl: uploadedImage }),
     };
+
+    // 如果有图片，需要将图片数据包含在API请求中
+    let messageContent: string | any = input;
+    if (uploadedImage) {
+      // 对于支持视觉的模型，将图片数据包含在消息中
+      const modelInfo = MODEL_MAPPING[model];
+      if (modelInfo?.supports?.vision) {
+        messageContent = [
+          { type: 'text', text: input },
+          { type: 'image_url', image_url: { url: uploadedImage } }
+        ];
+      } else {
+        // 对于不支持视觉的模型，添加提示信息
+        messageContent = input + '\n\n[注意：当前模型不支持图像理解，图片已上传但无法分析]';
+      }
+    }
     
     addMessageToCurrentSession(userMessage);
     setInput('');
@@ -354,8 +370,11 @@ export default function HomePage() {
         body: JSON.stringify(
           addApiKeyToRequest({
             model: currentSession.model || model,
-            messages: [...currentSession.messages.filter(m => m.id !== assistantMessageId), userMessage]
-              .map(m => ({ role: m.role, content: m.content })),
+            messages: [
+              ...currentSession.messages.filter(m => m.id !== assistantMessageId)
+                .map(m => ({ role: m.role, content: m.content })),
+              { role: 'user', content: messageContent }
+            ],
             stream: true,
             ...advancedSettings,
           } as LLMRequest)
@@ -590,7 +609,27 @@ export default function HomePage() {
   const handleImageUpload = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      setUploadedImage(e.target?.result as string);
+      const result = e.target?.result as string;
+      setUploadedImage(result);
+      console.log('Image uploaded:', file.name, file.type, 'Size:', file.size);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleFileUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      // 对于文本文件，直接添加到输入框
+      if (file.type.startsWith('text/') || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
+        const content = result.split(',')[1]; // 移除data:text/plain;base64,前缀
+        const decodedContent = atob(content);
+        setInput(prev => prev + '\n\n' + `[文件: ${file.name}]\n${decodedContent}`);
+      } else {
+        // 对于其他文件类型，显示文件信息
+        setInput(prev => prev + '\n\n' + `[已上传文件: ${file.name}, 类型: ${file.type}, 大小: ${(file.size / 1024).toFixed(2)}KB]`);
+      }
+      console.log('File uploaded:', file.name, file.type, 'Size:', file.size);
     };
     reader.readAsDataURL(file);
   };
@@ -934,10 +973,12 @@ export default function HomePage() {
               value={input} 
               onChange={setInput} 
               onSend={handleSend} 
-              onImageUpload={handleImageUpload} 
+              onImageUpload={handleImageUpload}
+              onFileUpload={handleFileUpload}
               disabled={isLoading} 
               onCancel={handleCancel} 
-              showCancel={isLoading}  
+              showCancel={isLoading}
+              currentModel={model}
             />
           </div>
         </div>

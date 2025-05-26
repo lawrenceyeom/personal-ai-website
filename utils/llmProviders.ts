@@ -99,7 +99,13 @@ export interface LLMRequest {
   seed?: number;
   response_format?: { type: string };
   response_mime_type?: string;
-  thinking?: { budget_tokens?: number; type?: string };
+  thinking?: { 
+    budget_tokens?: number; 
+    type?: string;
+    enabled?: boolean;
+    max_budget?: number;
+    include_thoughts?: boolean;
+  };
   safety_settings?: Array<{
     category: string;
     threshold: string;
@@ -240,7 +246,11 @@ export const MODEL_MAPPING: Record<string, {
     presence_penalty?: { min: number; max: number; default: number };
     frequency_penalty?: { min: number; max: number; default: number };
     stop_sequences?: { max_count: number };
-    thinking?: boolean;
+    thinking?: boolean | { 
+      enabled: boolean; 
+      budget_tokens?: { min: number; max: number; default: number };
+      include_thoughts?: boolean;
+    };
     tools?: boolean;
     vision?: boolean;
     system_instructions?: boolean;
@@ -253,7 +263,7 @@ export const MODEL_MAPPING: Record<string, {
     supports: {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 32768, default: 1024 },
+      max_tokens: { min: 1, max: 32768, default: 4096 },
       presence_penalty: { min: -2, max: 2, default: 0 },
       frequency_penalty: { min: -2, max: 2, default: 0 },
       stop_sequences: { max_count: 4 },
@@ -269,7 +279,7 @@ export const MODEL_MAPPING: Record<string, {
     supports: {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 32768, default: 1024 },
+      max_tokens: { min: 1, max: 32768, default: 4096 },
       presence_penalty: { min: -2, max: 2, default: 0 },
       frequency_penalty: { min: -2, max: 2, default: 0 },
       stop_sequences: { max_count: 4 },
@@ -285,7 +295,7 @@ export const MODEL_MAPPING: Record<string, {
     supports: {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 32768, default: 1024 },
+      max_tokens: { min: 1, max: 32768, default: 4096 },
       presence_penalty: { min: -2, max: 2, default: 0 },
       frequency_penalty: { min: -2, max: 2, default: 0 },
       stop_sequences: { max_count: 4 },
@@ -303,7 +313,7 @@ export const MODEL_MAPPING: Record<string, {
     isReasoner: true,
     supports: {
       temperature: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 100000, default: 1024 },
+      max_tokens: { min: 1, max: 100000, default: 4096 },
       thinking: true,
       tools: true,
       vision: true,
@@ -316,7 +326,7 @@ export const MODEL_MAPPING: Record<string, {
     isReasoner: true,
     supports: {
       temperature: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 100000, default: 1024 },
+      max_tokens: { min: 1, max: 100000, default: 4096 },
       thinking: true,
       tools: true,
       vision: false,
@@ -329,7 +339,7 @@ export const MODEL_MAPPING: Record<string, {
     isReasoner: true,
     supports: {
       temperature: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 100000, default: 1024 },
+      max_tokens: { min: 1, max: 100000, default: 4096 },
       thinking: true,
       tools: true,
       vision: true,
@@ -344,7 +354,7 @@ export const MODEL_MAPPING: Record<string, {
     supports: {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 4096, default: 1024 },
+      max_tokens: { min: 1, max: 4096, default: 4096 },
       presence_penalty: { min: -2, max: 2, default: 0 },
       frequency_penalty: { min: -2, max: 2, default: 0 },
       stop_sequences: { max_count: 4 },
@@ -359,7 +369,7 @@ export const MODEL_MAPPING: Record<string, {
     supports: {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 16384, default: 1024 },
+      max_tokens: { min: 1, max: 16384, default: 4096 },
       presence_penalty: { min: -2, max: 2, default: 0 },
       frequency_penalty: { min: -2, max: 2, default: 0 },
       stop_sequences: { max_count: 4 },
@@ -373,7 +383,7 @@ export const MODEL_MAPPING: Record<string, {
     apiModel: 'o1-mini', 
     isReasoner: true,
     supports: {
-      max_tokens: { min: 1, max: 65536, default: 1024 },
+      max_tokens: { min: 1, max: 65536, default: 4096 },
       tools: false,
       vision: false,
       system_instructions: false,
@@ -389,7 +399,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 1, default: 1 },
       top_p: { min: 0.95, max: 1, default: 0.99 },
       top_k: { min: 0, max: 200, default: 40 },
-      max_tokens: { min: 1, max: 32000, default: 1024 },
+      max_tokens: { min: 1, max: 32000, default: 4096 },
       stop_sequences: { max_count: 5 },
       thinking: true,
       tools: true,
@@ -404,7 +414,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 1, default: 1 },
       top_p: { min: 0.95, max: 1, default: 0.99 },
       top_k: { min: 0, max: 200, default: 40 },
-      max_tokens: { min: 1, max: 64000, default: 1024 },
+      max_tokens: { min: 1, max: 64000, default: 4096 },
       stop_sequences: { max_count: 5 },
       thinking: true,
       tools: true,
@@ -421,7 +431,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 1, default: 1 },
       top_p: { min: 0.95, max: 1, default: 0.99 },
       top_k: { min: 0, max: 200, default: 40 },
-      max_tokens: { min: 1, max: 8192, default: 1024 },
+      max_tokens: { min: 1, max: 8192, default: 4096 },
       stop_sequences: { max_count: 5 },
       thinking: true,
       tools: true,
@@ -436,7 +446,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 1, default: 1 },
       top_p: { min: 0.95, max: 1, default: 0.99 },
       top_k: { min: 0, max: 200, default: 40 },
-      max_tokens: { min: 1, max: 8192, default: 1024 },
+      max_tokens: { min: 1, max: 8192, default: 4096 },
       stop_sequences: { max_count: 5 },
       thinking: true,
       tools: true,
@@ -454,7 +464,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0.95, max: 1, default: 0.95 },
       top_k: { min: 1, max: 64, default: 64 },
-      max_tokens: { min: 1, max: 65536, default: 1024 },
+      max_tokens: { min: 1, max: 65536, default: 4096 },
       stop_sequences: { max_count: 5 },
       thinking: true,
       tools: true,
@@ -470,7 +480,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 0.95 },
       top_k: { min: 1, max: 64, default: 64 },
-      max_tokens: { min: 1, max: 65536, default: 1024 },
+      max_tokens: { min: 1, max: 65536, default: 4096 },
       stop_sequences: { max_count: 5 },
       thinking: true,
       tools: true,
@@ -487,7 +497,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 0.95 },
       top_k: { min: 1, max: 64, default: 64 },
-      max_tokens: { min: 1, max: 65536, default: 1024 },
+      max_tokens: { min: 1, max: 65536, default: 4096 },
       stop_sequences: { max_count: 5 },
       thinking: false,
       tools: true,
@@ -502,7 +512,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 0.95 },
       top_k: { min: 1, max: 64, default: 64 },
-      max_tokens: { min: 1, max: 65536, default: 1024 },
+      max_tokens: { min: 1, max: 65536, default: 4096 },
       stop_sequences: { max_count: 5 },
       thinking: false,
       tools: true,
@@ -518,7 +528,7 @@ export const MODEL_MAPPING: Record<string, {
     supports: {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 4096, default: 1024 },
+      max_tokens: { min: 1, max: 4096, default: 4096 },
       presence_penalty: { min: -2, max: 2, default: 0 },
       frequency_penalty: { min: -2, max: 2, default: 0 },
       stop_sequences: { max_count: 4 },
@@ -532,7 +542,7 @@ export const MODEL_MAPPING: Record<string, {
     apiModel: 'deepseek-reasoner', 
     isReasoner: true,
     supports: {
-      max_tokens: { min: 1, max: 8192, default: 1024 },
+      max_tokens: { min: 1, max: 8192, default: 4096 },
       thinking: true,
       tools: false,
       vision: false,
@@ -549,7 +559,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 1 },
       top_k: { min: 1, max: 40, default: 40 },
-      max_tokens: { min: 1, max: 131072, default: 1024 },
+      max_tokens: { min: 1, max: 131072, default: 4096 },
       presence_penalty: { min: -2, max: 2, default: 0 },
       frequency_penalty: { min: -2, max: 2, default: 0 },
       stop_sequences: { max_count: 4 },
@@ -566,7 +576,7 @@ export const MODEL_MAPPING: Record<string, {
     supports: {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 1 },
-      max_tokens: { min: 1, max: 131072, default: 1024 },
+      max_tokens: { min: 1, max: 131072, default: 4096 },
       thinking: true,
       tools: true,
       vision: false,
@@ -582,7 +592,7 @@ export const MODEL_MAPPING: Record<string, {
       temperature: { min: 0, max: 2, default: 1 },
       top_p: { min: 0, max: 1, default: 1 },
       top_k: { min: 1, max: 40, default: 40 },
-      max_tokens: { min: 1, max: 131072, default: 1024 },
+      max_tokens: { min: 1, max: 131072, default: 4096 },
       presence_penalty: { min: -2, max: 2, default: 0 },
       frequency_penalty: { min: -2, max: 2, default: 0 },
       stop_sequences: { max_count: 4 },

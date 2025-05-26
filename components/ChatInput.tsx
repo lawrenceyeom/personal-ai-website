@@ -7,28 +7,67 @@ interface ChatInputProps {
   onChange: (value: string) => void;
   onSend: () => void;
   onImageUpload?: (file: File) => void;
+  onFileUpload?: (file: File) => void;
   disabled?: boolean;
   onCancel?: () => void;
   showCancel?: boolean;
+  currentModel?: string;
 }
+
+// 根据模型设置字符限制
+const getCharacterLimit = (model?: string): number => {
+  if (!model) return 20000;
+  
+  // 推理模型通常支持更长的输入
+  if (model.includes('o1') || model.includes('o3') || model.includes('o4') || 
+      model.includes('reasoner') || model.includes('r1') || 
+      model.includes('grok-3') || model.includes('gemini-2.5')) {
+    return 50000;
+  }
+  
+  // Claude 4 和 Gemini 2.5 支持很长的上下文
+  if (model.includes('claude-opus-4') || model.includes('claude-sonnet-4') || 
+      model.includes('gemini-2.5')) {
+    return 40000;
+  }
+  
+  // GPT-4.1 系列
+  if (model.includes('gpt-4.1')) {
+    return 30000;
+  }
+  
+  // 其他现代模型
+  if (model.includes('gpt-4o') || model.includes('claude-3.5') || 
+      model.includes('gemini-1.5') || model.includes('grok-2')) {
+    return 25000;
+  }
+  
+  // DeepSeek 和其他模型
+  return 20000;
+};
 
 export default function ChatInput({ 
   value, 
   onChange, 
   onSend, 
-  onImageUpload, 
+  onImageUpload,
+  onFileUpload,
   disabled,
   onCancel,
-  showCancel
+  showCancel,
+  currentModel
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  const characterLimit = getCharacterLimit(currentModel);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && value.trim()) {
+      if (!disabled && value.trim() && value.length <= characterLimit) {
         onSend();
       }
     }
@@ -62,9 +101,32 @@ export default function ChatInput({
     setIsDragging(false);
     
     const files = e.dataTransfer.files;
-    if (files.length > 0 && files[0].type.startsWith('image/') && onImageUpload) {
-      onImageUpload(files[0]);
+    if (files.length > 0) {
+      const file = files[0];
+      if (file.type.startsWith('image/') && onImageUpload) {
+        onImageUpload(file);
+      } else if (onFileUpload) {
+        onFileUpload(file);
+      }
     }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && onImageUpload) {
+      onImageUpload(file);
+    }
+    // 重置input值，允许重复选择同一文件
+    e.target.value = '';
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && onFileUpload) {
+      onFileUpload(file);
+    }
+    // 重置input值，允许重复选择同一文件
+    e.target.value = '';
   };
 
   // Auto-resize textarea
@@ -74,6 +136,8 @@ export default function ChatInput({
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
   }, [value]);
+
+  const isOverLimit = value.length > characterLimit;
 
   return (
     <div 
@@ -94,7 +158,7 @@ export default function ChatInput({
               onPaste={handlePaste}
               placeholder={disabled ? "AI is thinking..." : "Type your message here... (Shift+Enter for new line)"}
               disabled={disabled}
-              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent resize-none min-h-[56px] max-h-[200px] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`w-full px-4 py-3 bg-slate-800/50 border ${isOverLimit ? 'border-red-500' : 'border-slate-600/50'} rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent resize-none min-h-[56px] max-h-[200px] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed`}
               rows={1}
             />
             
@@ -119,19 +183,14 @@ export default function ChatInput({
               {onImageUpload && (
                 <>
                   <input
-                    ref={fileInputRef}
+                    ref={imageInputRef}
                     type="file"
                     accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        onImageUpload(file);
-                      }
-                    }}
+                    onChange={handleImageUpload}
                     className="hidden"
                   />
                   <button
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => imageInputRef.current?.click()}
                     disabled={disabled}
                     className="p-2.5 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Upload image"
@@ -143,16 +202,28 @@ export default function ChatInput({
                 </>
               )}
 
-              {/* Attachment button */}
-              <button
-                disabled={disabled}
-                className="p-2.5 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Attach file"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                </svg>
-              </button>
+              {/* File upload */}
+              {onFileUpload && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,.pdf,.doc,.docx,.md"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={disabled}
+                    className="p-2.5 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Attach file"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                  </button>
+                </>
+              )}
 
               {/* Voice input button */}
               <button
@@ -168,8 +239,8 @@ export default function ChatInput({
 
             <div className="flex items-center gap-2">
               {/* Character count */}
-              <span className="text-xs text-slate-500">
-                {value.length} / 4000
+              <span className={`text-xs ${isOverLimit ? 'text-red-400' : 'text-slate-500'}`}>
+                {value.length.toLocaleString()} / {characterLimit.toLocaleString()}
               </span>
 
               {/* Cancel button */}
@@ -188,7 +259,7 @@ export default function ChatInput({
               {/* Send button */}
               <button
                 onClick={onSend}
-                disabled={disabled || !value.trim()}
+                disabled={disabled || !value.trim() || isOverLimit}
                 className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:from-slate-600 disabled:to-slate-600 flex items-center gap-2 shadow-lg hover:shadow-xl"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -207,7 +278,7 @@ export default function ChatInput({
               <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-2 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
-              <p className="text-blue-400 font-medium">Drop image here</p>
+              <p className="text-blue-400 font-medium">Drop file here</p>
             </div>
           </div>
         )}

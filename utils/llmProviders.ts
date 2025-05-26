@@ -708,7 +708,17 @@ export async function callLLMStream(
   // 根据提供商调用相应的函数
   // 对于中国大陆用户，国外API需要代理，DeepSeek可以选择不使用代理
   const shouldUseProxy = (provider: string) => {
-    if (cleanedReq.bypass_proxy) return false; // 明确绕过代理
+    // 检查API选项中的bypassProxy设置
+    if (cleanedReq.api_options?.bypassProxy === true) {
+      console.log(`Provider ${provider}: Bypassing proxy due to api_options.bypassProxy`);
+      return false;
+    }
+    
+    // 旧的bypass_proxy检查（向后兼容）
+    if (cleanedReq.bypass_proxy) {
+      console.log(`Provider ${provider}: Bypassing proxy due to bypass_proxy flag`);
+      return false;
+    }
     
     // DeepSeek是国内API，可以根据用户设置决定是否使用代理
     if (provider === 'deepseek') {
@@ -716,6 +726,7 @@ export async function callLLMStream(
     }
     
     // 其他国外API在中国大陆需要代理（除非明确绕过）
+    console.log(`Provider ${provider}: Using proxy (foreign API)`);
     return true;
   };
 
@@ -774,7 +785,13 @@ async function callDeepSeekStream(
           
         return { role: m.role, content: finalContent };
       }
-      return { role: m.role, content: m.content };
+      
+      // Handle text content with file references
+      const textContent = m.content as string;
+      
+      // DeepSeek doesn't support native document processing, just return the text
+      // The text already contains file content or references from the client side
+      return { role: m.role, content: textContent };
     });
     
     const bodyParams: any = {
@@ -1013,6 +1030,31 @@ async function callOpenAIStream(
           }
         }
         return { role: m.role, content: contentParts };
+      }
+      
+      // Handle text content with potential file references
+      const textContent = m.content as string;
+      
+      // Check for OpenAI file IDs in the content
+      const openaiFileMatches = textContent.match(/\[OpenAI文件: .+?, ID: (file-[^\]]+)\]/g);
+      if (openaiFileMatches) {
+        // For OpenAI, we need to use the attachments field
+        const attachments: any[] = [];
+        openaiFileMatches.forEach(match => {
+          const idMatch = match.match(/ID: (file-[^\]]+)/);
+          if (idMatch) {
+            attachments.push({
+              file_id: idMatch[1],
+              tools: [{ type: "file_search" }]
+            });
+          }
+        });
+        
+        return { 
+          role: m.role, 
+          content: textContent,
+          attachments: attachments.length > 0 ? attachments : undefined
+        };
       }
       
       return { role: m.role, content: m.content };
@@ -1376,8 +1418,27 @@ async function callGeminiStream(
             }
             return { role, parts };
           } else {
-            // Simple text content
-            return { role, parts: [{ text: m.content as string }] };
+            // Handle text content with potential file references
+            const textContent = m.content as string;
+            const parts: any[] = [{ text: textContent }];
+            
+            // Check for Gemini file URIs in the content
+            const geminiFileMatches = textContent.match(/\[Gemini文件: .+?, URI: (files\/[^\]]+)\]/g);
+            if (geminiFileMatches) {
+              geminiFileMatches.forEach(match => {
+                const uriMatch = match.match(/URI: (files\/[^\]]+)/);
+                if (uriMatch) {
+                  parts.push({
+                    fileData: {
+                      fileUri: uriMatch[1],
+                      mimeType: "application/pdf" // Default to PDF, could be enhanced
+                    }
+                  });
+                }
+              });
+            }
+            
+            return { role, parts };
           }
         });
 
@@ -1713,7 +1774,13 @@ async function callGrokStream(
         }
         return { role: m.role, content: contentParts };
       }
-      return { role: m.role, content: m.content };
+      
+      // Handle text content with file references
+      const textContent = m.content as string;
+      
+      // Grok doesn't support native document processing like OpenAI's file attachments
+      // Just return the text content which already includes file information
+      return { role: m.role, content: textContent };
     });
 
     const modelDetails = MODEL_MAPPING[req.model];
@@ -1757,12 +1824,16 @@ async function callGrokStream(
     const body = JSON.stringify(bodyParams);
 
     try {
-      console.log('Grok API Request (placeholder):', {
+      console.log('Grok API Request:', {
         model: req.model_id,
         bodyLength: body.length,
         useProxy: useAgent ? 'true' : 'false',
-        messages: messages.length
+        messages: messages.length,
+        apiUrl: apiUrl,
+        hasApiKey: !!apiKey
       });
+      
+      console.log('Grok API Body:', body);
 
       let fetchOptions: any = {
         method: 'POST',
@@ -1777,6 +1848,8 @@ async function callGrokStream(
         });
         fetchOptions.agent = hpAgent;
         console.log('Grok API使用代理 (HpHttpsProxyAgent)');
+      } else {
+        console.log('Grok API不使用代理 (node-fetch)');
       }
 
       const timeout = API_TIMEOUT_MS;
@@ -1887,7 +1960,7 @@ async function callGrokStream(
                 }
               }
             } catch (e) {
-              console.error('Error parsing Grok JSON (placeholder):', data, e);
+              console.error('Error parsing Grok JSON:', data, e);
               if (data.includes('error')) {
                 try {
                   const errorObj = JSON.parse(data);
@@ -1900,7 +1973,7 @@ async function callGrokStream(
       });
 
       reader.on('end', () => {
-        console.log('Grok stream ended (placeholder)');
+        console.log('Grok stream ended');
         if (buffer.length > 0 && buffer.startsWith('data: ')) {
           try {
             const data = buffer.substring(6).trim();
@@ -1916,14 +1989,14 @@ async function callGrokStream(
       });
 
       reader.on('error', (err: any) => {
-        console.error('Grok stream error (placeholder):', err);
+        console.error('Grok stream error:', err);
         onData(JSON.stringify({ error: err.message || 'Stream error', details: err.code || 'Unknown error code' }), 'error_chunk');
         reject(err);
       });
 
     } catch (error: any) {
-      console.error('Grok stream error (outer placeholder):', error);
-      onData(JSON.stringify({ error: error.message || 'Grok API调用失败 (placeholder)', details: error.stack }), 'error_chunk');
+      console.error('Grok stream error (outer):', error);
+      onData(JSON.stringify({ error: error.message || 'Grok API调用失败', details: error.stack }), 'error_chunk');
       reject(error);
     }
   });

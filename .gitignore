@@ -9,6 +9,9 @@ yarn-error.log*
 out/
 build/
 
+# TypeScript
+*.tsbuildinfo
+
 # Environment variables
 .env
 .env.local

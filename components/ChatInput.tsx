@@ -9,6 +9,10 @@ export interface UploadedFile {
   size: number;
   url?: string; // For images
   content?: string; // For text files
+  // 原生文档处理支持
+  fileId?: string; // OpenAI file ID
+  fileUri?: string; // Gemini file URI
+  provider?: string; // 提供商名称
 }
 
 interface ChatInputProps {

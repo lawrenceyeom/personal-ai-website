@@ -336,8 +336,9 @@ export default function HomePage() {
     if (uploadedFiles.length > 0) {
       let additionalContent = '';
       const imageFiles = uploadedFiles.filter(f => f.type.startsWith('image/'));
-      const textFiles = uploadedFiles.filter(f => f.content);
-      const otherFiles = uploadedFiles.filter(f => !f.type.startsWith('image/') && !f.content);
+      const textFiles = uploadedFiles.filter(f => f.content && !f.fileId && !f.fileUri);
+      const nativeDocFiles = uploadedFiles.filter(f => f.fileId || f.fileUri);
+      const otherFiles = uploadedFiles.filter(f => !f.type.startsWith('image/') && !f.content && !f.fileId && !f.fileUri);
       
       // 处理文本文件
       if (textFiles.length > 0) {
@@ -345,6 +346,28 @@ export default function HomePage() {
         textFiles.forEach(file => {
           additionalContent += `\n[文件: ${file.name}]\n${file.content}\n`;
         });
+      }
+      
+      // 处理原生文档文件（已上传到API的文件）
+      if (nativeDocFiles.length > 0) {
+        const modelInfo = MODEL_MAPPING[model];
+        if (modelInfo?.supports?.documents) {
+          // 对于支持原生文档处理的模型，在消息中添加文件引用
+          additionalContent += '\n\n--- 已上传文档 ---\n';
+          nativeDocFiles.forEach(file => {
+            if (file.fileId) {
+              additionalContent += `[OpenAI文件: ${file.name}, ID: ${file.fileId}]\n`;
+            } else if (file.fileUri) {
+              additionalContent += `[Gemini文件: ${file.name}, URI: ${file.fileUri}]\n`;
+            }
+          });
+        } else {
+          // 如果模型不支持，显示警告
+          additionalContent += '\n\n--- 文档上传警告 ---\n';
+          nativeDocFiles.forEach(file => {
+            additionalContent += `[警告: ${file.name} 已上传但当前模型不支持原生文档处理]\n`;
+          });
+        }
       }
       
       // 处理其他文件
@@ -685,19 +708,83 @@ export default function HomePage() {
         return;
       }
       
-      // 处理文档
-      const processedFile = await processDocument(file);
+      // 检查当前模型是否支持原生文档处理
+      const modelInfo = MODEL_MAPPING[model];
+      const supportsNativeDocuments = modelInfo?.supports?.documents;
       
-      const newFile: UploadedFile = {
-        id: `file-${Date.now()}`,
-        name: processedFile.name,
-        type: processedFile.type,
-        size: processedFile.size,
-        content: processedFile.content
-      };
-      
-      setUploadedFiles(prev => [...prev, newFile]);
-      console.log('File uploaded and processed:', file.name, file.type, 'Size:', file.size);
+      if (supportsNativeDocuments) {
+        // 对于支持原生文档处理的模型，上传文件到对应的API
+        try {
+          const apiKey = getApiKeyForProvider(modelInfo.provider);
+          if (!apiKey) {
+            alert(`请先设置${modelInfo.provider}的API密钥`);
+            return;
+          }
+          
+          // 创建FormData上传文件
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('model', model);
+          formData.append('apiKey', apiKey);
+          
+          const uploadResponse = await fetch('/api/files/upload', {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json();
+            throw new Error(errorData.error || '文件上传失败');
+          }
+          
+          const uploadResult = await uploadResponse.json();
+          
+          // 创建包含文件引用的UploadedFile对象
+          const newFile: UploadedFile = {
+            id: `file-${Date.now()}`,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            content: `[原生文档处理] ${file.name} - 已上传到${modelInfo.provider}`,
+            // 存储文件引用信息
+            fileId: uploadResult.fileId,
+            fileUri: uploadResult.fileUri,
+            provider: uploadResult.provider
+          };
+          
+          setUploadedFiles(prev => [...prev, newFile]);
+          console.log('File uploaded to API:', file.name, 'Provider:', modelInfo.provider);
+          
+        } catch (error) {
+          console.error('Error uploading file to API:', error);
+          alert(`文件上传失败: ${error.message}`);
+          
+          // 回退到本地处理
+          const processedFile = await processDocument(file);
+          const newFile: UploadedFile = {
+            id: `file-${Date.now()}`,
+            name: processedFile.name,
+            type: processedFile.type,
+            size: processedFile.size,
+            content: processedFile.content
+          };
+          setUploadedFiles(prev => [...prev, newFile]);
+        }
+      } else {
+        // 对于不支持原生文档处理的模型，使用本地处理
+        const processedFile = await processDocument(file);
+        
+        const newFile: UploadedFile = {
+          id: `file-${Date.now()}`,
+          name: processedFile.name,
+          type: processedFile.type,
+          size: processedFile.size,
+          content: processedFile.content
+        };
+        
+        setUploadedFiles(prev => [...prev, newFile]);
+        console.log('File processed locally:', file.name, file.type, 'Size:', file.size);
+      }
     } catch (error) {
       console.error('Error processing file:', error);
       alert('文件处理失败，请重试。');

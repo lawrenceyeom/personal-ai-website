@@ -1315,10 +1315,34 @@ async function callGeminiStream(
 
       const contents = req.messages
         .filter(m => m.role === 'user' || m.role === 'assistant') 
-        .map(m => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content as string }], 
-        }));
+        .map(m => {
+          const role = m.role === 'assistant' ? 'model' : 'user';
+          
+          // Handle multimodal content
+          if (Array.isArray(m.content)) {
+            const parts: any[] = [];
+            for (const part of m.content) {
+              if (part.type === 'text') {
+                parts.push({ text: part.text });
+              } else if (part.type === 'image_url' && part.image_url?.url) {
+                // Extract base64 data from data URL
+                const base64Match = part.image_url.url.match(/^data:image\/(\w+);base64,(.+)$/);
+                if (base64Match) {
+                  parts.push({
+                    inlineData: {
+                      mimeType: `image/${base64Match[1]}`,
+                      data: base64Match[2]
+                    }
+                  });
+                }
+              }
+            }
+            return { role, parts };
+          } else {
+            // Simple text content
+            return { role, parts: [{ text: m.content as string }] };
+          }
+        });
 
       const modelDetails = MODEL_MAPPING[req.model];
       const supportsThinking = modelDetails?.supports?.thinking || false;

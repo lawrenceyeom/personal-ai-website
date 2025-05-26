@@ -366,6 +366,9 @@ export default function HomePage() {
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         signal: abortControllerRef.current.signal,
         body: JSON.stringify(
           addApiKeyToRequest({
@@ -704,6 +707,9 @@ export default function HomePage() {
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         signal: abortControllerRef.current.signal,
         body: JSON.stringify(
           addApiKeyToRequest({

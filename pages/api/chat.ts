@@ -22,10 +22,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.flushHeaders(); // Flush the headers to establish the connection early
 
   try {
-    // 直接使用Next.js的内置body parser
-    const parsedRequest: LLMRequest = req.body; 
-      console.log('[API Chat DEBUG] Received request body');
-      console.log('[API Chat DEBUG] Parsed request before api_options processing:', JSON.stringify(parsedRequest, null, 2));
+    // 解析请求体，处理字符串和对象两种情况
+    let parsedRequest: LLMRequest;
+    if (typeof req.body === 'string') {
+      parsedRequest = JSON.parse(req.body);
+    } else {
+      parsedRequest = req.body;
+    }
+    
+    console.log('[API Chat DEBUG] Received request body');
+    console.log('[API Chat DEBUG] Parsed request before api_options processing:', JSON.stringify(parsedRequest, null, 2));
       
       // Handle api_options properly
       if (parsedRequest.api_options) {

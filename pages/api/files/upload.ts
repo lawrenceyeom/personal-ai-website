@@ -24,8 +24,8 @@ async function uploadToOpenAI(file: formidable.File, apiKey: string): Promise<Fi
     const FormData = require('form-data');
     const form = new FormData();
     
-    // 添加purpose字段 - 使用assistants而不是user_data
-    form.append('purpose', 'assistants');
+    // 添加purpose字段 - 根据文档应该使用user_data
+    form.append('purpose', 'user_data');
     
     // 添加文件，确保正确的文件流和元数据
     form.append('file', fs.createReadStream(file.filepath), {

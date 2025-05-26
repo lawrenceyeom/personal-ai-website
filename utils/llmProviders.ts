@@ -1027,6 +1027,11 @@ async function callOpenAIStream(
             contentParts.push({ type: 'text', text: part.text });
           } else if (part.type === 'image_url' && part.image_url?.url) {
             contentParts.push({ type: 'image_url', image_url: { url: part.image_url.url } });
+          } else if (part.type === 'input_text') {
+            contentParts.push({ type: 'text', text: part.text });
+          } else if (part.type === 'input_file' && part.file_id) {
+            // Keep input_file parts as-is for API v1 (not chat completions)
+            contentParts.push({ type: 'input_file', file_id: part.file_id });
           }
         }
         return { role: m.role, content: contentParts };
@@ -1038,26 +1043,33 @@ async function callOpenAIStream(
       // Check for OpenAI file IDs in the content
       const openaiFileMatches = textContent.match(/\[OpenAI文件: .+?, ID: (file-[^\]]+)\]/g);
       if (openaiFileMatches) {
-        // For OpenAI, we need to use the attachments field
-        const attachments: any[] = [];
+        // For OpenAI with file inputs, we need to use content array with input_file type
+        const contentParts: any[] = [];
         let cleanTextContent = textContent;
         
         openaiFileMatches.forEach(match => {
           const idMatch = match.match(/ID: (file-[^\]]+)/);
           if (idMatch) {
-            attachments.push({
-              file_id: idMatch[1],
-              tools: [{ type: "file_search" }]
+            contentParts.push({
+              type: "input_file",
+              file_id: idMatch[1]
             });
             // Remove file reference from text content
             cleanTextContent = cleanTextContent.replace(match, '').trim();
           }
         });
         
+        // Add the text content as input_text
+        if (cleanTextContent) {
+          contentParts.push({
+            type: "input_text",
+            text: cleanTextContent
+          });
+        }
+        
         return { 
           role: m.role, 
-          content: cleanTextContent || textContent,
-          attachments: attachments.length > 0 ? attachments : undefined
+          content: contentParts.length > 0 ? contentParts : textContent
         };
       }
       
@@ -1396,6 +1408,8 @@ async function callGeminiStream(
       
       const url = `https://generativelanguage.googleapis.com/v1beta/${geminiApiIdentifier}:streamGenerateContent?key=${apiKey}`;
 
+      // Process messages and extract file references
+      const fileReferences: { fileUri: string, mimeType: string }[] = [];
       const contents = req.messages
         .filter(m => m.role === 'user' || m.role === 'assistant') 
         .map(m => {
@@ -1425,7 +1439,6 @@ async function callGeminiStream(
             // Handle text content with potential file references
             const textContent = m.content as string;
             let cleanTextContent = textContent;
-            const parts: any[] = [];
             
             // Check for Gemini file URIs in the content
             const geminiFileMatches = textContent.match(/\[Gemini文件: .+?, URI: (files\/[^\]]+)\]/g);
@@ -1433,12 +1446,10 @@ async function callGeminiStream(
               geminiFileMatches.forEach(match => {
                 const uriMatch = match.match(/URI: (files\/[^\]]+)/);
                 if (uriMatch) {
-                  // Add file reference
-                  parts.push({
-                    fileData: {
-                      fileUri: uriMatch[1],
-                      mimeType: "application/pdf" // Default to PDF, could be enhanced
-                    }
+                  // Store file reference for later
+                  fileReferences.push({
+                    fileUri: uriMatch[1],
+                    mimeType: "application/pdf" // Default to PDF, could be enhanced
                   });
                   // Remove file reference from text content
                   cleanTextContent = cleanTextContent.replace(match, '').trim();
@@ -1446,17 +1457,7 @@ async function callGeminiStream(
               });
             }
             
-            // Add text content if it's not empty
-            if (cleanTextContent) {
-              parts.unshift({ text: cleanTextContent });
-            }
-            
-            // If no parts were added, add empty text
-            if (parts.length === 0) {
-              parts.push({ text: textContent });
-            }
-            
-            return { role, parts };
+            return { role, parts: [{ text: cleanTextContent || textContent }] };
           }
         });
 
@@ -1501,8 +1502,23 @@ async function callGeminiStream(
         systemInstruction.system_instruction = { parts: [{ text: req.system }] };
       }
 
+      // Build the request body according to Gemini's documentation
+      const bodyContents: any[] = [];
+      
+      // Add file references as separate content items
+      if (fileReferences.length > 0) {
+        fileReferences.forEach(fileRef => {
+          bodyContents.push({
+            fileData: fileRef
+          });
+        });
+      }
+      
+      // Then add the message contents
+      bodyContents.push(...contents);
+      
       const bodyPayload: any = {
-        contents: contents,
+        contents: bodyContents,
         generationConfig: generationConfig,
         ...systemInstruction,
       };

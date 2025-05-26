@@ -9,7 +9,7 @@
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
-    "tailwindcss/nesting": "^0.0.0-insiders.568fa6f"
+    "postcss-nesting": "^12.0.0"
   },
   "dependencies": {
     "@types/node": "^20.0.0",

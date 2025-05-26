@@ -1486,7 +1486,7 @@ async function callGeminiStream(
       }
       
       // Helper function to process the Gemini buffer and extract JSON objects
-      function processGeminiBuffer(inputBuffer: string, callback: typeof onData) {
+      const processGeminiBuffer = (inputBuffer: string, callback: typeof onData) => {
         // Remove array brackets and extra commas that might interfere with parsing
         let cleanBuffer = inputBuffer;
         
@@ -1582,7 +1582,7 @@ async function callGeminiStream(
         
         // Update the outer buffer with the remaining unprocessed content
         buffer = cleanBuffer;
-      }
+      };
     } catch (error: any) {
       console.error('Gemini stream error (outer):', error);
       

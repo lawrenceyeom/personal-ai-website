@@ -5,7 +5,7 @@ import Sidebar from '../components/Sidebar';
 import TopBar from '../components/TopBar';
 import PromptCards from '../components/PromptCards';
 import MessageList from '../components/MessageList';
-import ChatInput from '../components/ChatInput';
+import ChatInput, { UploadedFile } from '../components/ChatInput';
 import ModelSelector from '../components/ModelSelector';
 import AdvancedSettings from '../components/AdvancedSettings';
 import { LLMRequest } from '../utils/llmProviders';
@@ -38,6 +38,7 @@ export default function HomePage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
   // Advanced settings state
@@ -164,9 +165,10 @@ export default function HomePage() {
       archived: false
     };
     setSessions(prevSessions => [...prevSessions, newSession]);
-    setCurrentSessionId(newSessionId);
-    setInput('');
-    setUploadedImage(null);
+          setCurrentSessionId(newSessionId);
+      setInput('');
+      setUploadedImage(null);
+      setUploadedFiles([]);
   }, [model]);
 
   // Switch to an existing session
@@ -177,6 +179,7 @@ export default function HomePage() {
       setModel(switchedSession.model || DEFAULT_MODEL);
       setInput('');
       setUploadedImage(null);
+      setUploadedFiles([]);
     }
   };
 
@@ -326,10 +329,54 @@ export default function HomePage() {
       ...(uploadedImage && { imageUrl: uploadedImage }),
     };
 
-    // 如果有图片，需要将图片数据包含在API请求中
+    // 处理上传的文件和图片
     let messageContent: string | any = input;
-    if (uploadedImage) {
-      // 对于支持视觉的模型，将图片数据包含在消息中
+    
+    // 添加文件内容到消息中
+    if (uploadedFiles.length > 0) {
+      let additionalContent = '';
+      const imageFiles = uploadedFiles.filter(f => f.type.startsWith('image/'));
+      const textFiles = uploadedFiles.filter(f => f.content);
+      const otherFiles = uploadedFiles.filter(f => !f.type.startsWith('image/') && !f.content);
+      
+      // 处理文本文件
+      if (textFiles.length > 0) {
+        additionalContent += '\n\n--- 上传的文件内容 ---\n';
+        textFiles.forEach(file => {
+          additionalContent += `\n[文件: ${file.name}]\n${file.content}\n`;
+        });
+      }
+      
+      // 处理其他文件
+      if (otherFiles.length > 0) {
+        additionalContent += '\n\n--- 其他上传文件 ---\n';
+        otherFiles.forEach(file => {
+          additionalContent += `[文件: ${file.name}, 类型: ${file.type}, 大小: ${(file.size / 1024).toFixed(2)}KB]\n`;
+        });
+      }
+      
+      // 处理图片
+      if (imageFiles.length > 0) {
+        const modelInfo = MODEL_MAPPING[model];
+        if (modelInfo?.supports?.vision) {
+          // 对于支持视觉的模型，使用多模态格式
+          const contentParts = [{ type: 'text', text: input + additionalContent }];
+          imageFiles.forEach(file => {
+            if (file.url) {
+              contentParts.push({ type: 'image_url', image_url: { url: file.url } });
+            }
+          });
+          messageContent = contentParts;
+        } else {
+          // 对于不支持视觉的模型，添加提示信息
+          additionalContent += '\n\n[注意：当前模型不支持图像理解，已上传图片但无法分析]';
+          messageContent = input + additionalContent;
+        }
+      } else {
+        messageContent = input + additionalContent;
+      }
+    } else if (uploadedImage) {
+      // 向后兼容旧的图片上传方式
       const modelInfo = MODEL_MAPPING[model];
       if (modelInfo?.supports?.vision) {
         messageContent = [
@@ -337,7 +384,6 @@ export default function HomePage() {
           { type: 'image_url', image_url: { url: uploadedImage } }
         ];
       } else {
-        // 对于不支持视觉的模型，添加提示信息
         messageContent = input + '\n\n[注意：当前模型不支持图像理解，图片已上传但无法分析]';
       }
     }
@@ -345,6 +391,7 @@ export default function HomePage() {
     addMessageToCurrentSession(userMessage);
     setInput('');
     setUploadedImage(null);
+    setUploadedFiles([]);
 
     // Create initial assistant message with thinking state
     const assistantMessageId = `msg-${Date.now()}-assistant`;
@@ -613,7 +660,15 @@ export default function HomePage() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
-      setUploadedImage(result);
+      const newFile: UploadedFile = {
+        id: `img-${Date.now()}`,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        url: result
+      };
+      setUploadedFiles(prev => [...prev, newFile]);
+      setUploadedImage(result); // Keep for backward compatibility
       console.log('Image uploaded:', file.name, file.type, 'Size:', file.size);
     };
     reader.readAsDataURL(file);
@@ -623,18 +678,38 @@ export default function HomePage() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
-      // 对于文本文件，直接添加到输入框
+      let content = '';
+      
+      // 对于文本文件，解码内容
       if (file.type.startsWith('text/') || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
-        const content = result.split(',')[1]; // 移除data:text/plain;base64,前缀
-        const decodedContent = atob(content);
-        setInput(prev => prev + '\n\n' + `[文件: ${file.name}]\n${decodedContent}`);
-      } else {
-        // 对于其他文件类型，显示文件信息
-        setInput(prev => prev + '\n\n' + `[已上传文件: ${file.name}, 类型: ${file.type}, 大小: ${(file.size / 1024).toFixed(2)}KB]`);
+        const base64Content = result.split(',')[1]; // 移除data:text/plain;base64,前缀
+        content = atob(base64Content);
       }
+      
+      const newFile: UploadedFile = {
+        id: `file-${Date.now()}`,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        content: content || undefined
+      };
+      
+      setUploadedFiles(prev => [...prev, newFile]);
       console.log('File uploaded:', file.name, file.type, 'Size:', file.size);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleRemoveFile = (fileId: string) => {
+    setUploadedFiles(prev => {
+      const newFiles = prev.filter(f => f.id !== fileId);
+      // If removing an image, also clear uploadedImage if it matches
+      const removedFile = prev.find(f => f.id === fileId);
+      if (removedFile && removedFile.type.startsWith('image/') && removedFile.url === uploadedImage) {
+        setUploadedImage(null);
+      }
+      return newFiles;
+    });
   };
 
   // Add regenerate message functionality
@@ -985,6 +1060,8 @@ export default function HomePage() {
               onCancel={handleCancel} 
               showCancel={isLoading}
               currentModel={model}
+              uploadedFiles={uploadedFiles}
+              onRemoveFile={handleRemoveFile}
             />
           </div>
         </div>

@@ -2,6 +2,15 @@
 // Enhanced professional chat input with better design and features
 import React, { KeyboardEvent, useRef, useState } from 'react';
 
+export interface UploadedFile {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  url?: string; // For images
+  content?: string; // For text files
+}
+
 interface ChatInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -12,6 +21,8 @@ interface ChatInputProps {
   onCancel?: () => void;
   showCancel?: boolean;
   currentModel?: string;
+  uploadedFiles?: UploadedFile[];
+  onRemoveFile?: (fileId: string) => void;
 }
 
 // 根据模型设置字符限制
@@ -55,7 +66,9 @@ export default function ChatInput({
   disabled,
   onCancel,
   showCancel,
-  currentModel
+  currentModel,
+  uploadedFiles = [],
+  onRemoveFile
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -146,6 +159,61 @@ export default function ChatInput({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* File preview area */}
+      {uploadedFiles.length > 0 && (
+        <div className="mb-3 bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-600/50 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            <span className="text-sm text-slate-300 font-medium">
+              {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''} attached
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {uploadedFiles.map((file) => (
+              <div key={file.id} className="flex items-center gap-2 bg-slate-700/50 rounded-lg p-2 group">
+                {/* File icon or image preview */}
+                {file.type.startsWith('image/') && file.url ? (
+                  <img 
+                    src={file.url} 
+                    alt={file.name}
+                    className="w-8 h-8 rounded object-cover"
+                  />
+                ) : (
+                  <div className="w-8 h-8 bg-slate-600 rounded flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                )}
+                
+                {/* File info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-slate-200 truncate font-medium">{file.name}</p>
+                  <p className="text-xs text-slate-400">
+                    {(file.size / 1024).toFixed(1)} KB
+                  </p>
+                </div>
+                
+                {/* Remove button */}
+                {onRemoveFile && (
+                  <button
+                    onClick={() => onRemoveFile(file.id)}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-600 rounded transition-all duration-200"
+                    title="Remove file"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 hover:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 shadow-xl p-4">
         <div className="flex flex-col gap-3">
           {/* Input area */}

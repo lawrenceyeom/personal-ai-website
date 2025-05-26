@@ -168,7 +168,7 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                               </div>
                             );
                           }
-                          return <pre {...props} className={(props.className || '') + " my-2 whitespace-pre-wrap"}>{children}</pre>;
+                          return <pre {...props} className={(props.className || '') + " my-2 whitespace-pre-wrap text-white"}>{children}</pre>;
                         },
                         code: ({ node, inline, className, children, ...props }: any) => {
                           const match = /language-(\w+)/.exec(className || '');
@@ -186,9 +186,9 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                               </code>
                             );
                           }
-                          return <code {...props} className={(className || '') + ' text-base'}>{children}</code>;
+                          return <code {...props} className={(className || '') + ' text-base text-white'}>{children}</code>;
                         },
-                        p: ({node, ...props}) => <p className="my-2 text-base" {...props} />,
+                        p: ({node, ...props}) => <p className="my-2 text-base text-white" {...props} />,
                       }}
                     >
                       {preprocessMath(msg.thinking || '正在思考中...')}
@@ -234,7 +234,7 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                         <th {...props} className="border border-[#233056] px-4 py-2 text-left font-semibold text-[#7dd3fc] bg-[#1e2333]" />
                       ),
                       td: ({ node, ...props }) => (
-                        <td {...props} className="border border-[#233056] px-4 py-2 text-gray-300" />
+                        <td {...props} className="border border-[#233056] px-4 py-2 text-white" />
                       ),
                       pre: ({ node, children, ...props }) => {
                         const codeChild = React.Children.toArray(children).find(
@@ -256,7 +256,7 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                             </div>
                           );
                         }
-                        return <pre {...props} className={(props.className || '') + " my-2 whitespace-pre-wrap"}>{children}</pre>;
+                        return <pre {...props} className={(props.className || '') + " my-2 whitespace-pre-wrap text-white"}>{children}</pre>;
                       },
                       code: ({ node, inline, className, children, ...props }: any) => {
                         const match = /language-(\w+)/.exec(className || '');
@@ -276,16 +276,22 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                           );
                         }
                         // Fallback for other <code> usages, if any, or if it's not inline and not a language block (should be rare)
-                        return <code {...props} className={(className || '') + ' text-base'}>{children}</code>;
+                        return <code {...props} className={(className || '') + ' text-base text-white'}>{children}</code>;
                       },
-                      // Ensure headings and paragraphs render with default styles or desired styles
-                      h1: ({node, ...props}) => <h1 className="text-2xl font-bold my-4" {...props} />,
-                      h2: ({node, ...props}) => <h2 className="text-xl font-semibold my-3" {...props} />,
-                      h3: ({node, ...props}) => <h3 className="text-lg font-semibold my-2" {...props} />,
-                      p: ({node, ...props}) => <p className="my-2 text-base" {...props} />,
-                      ul: ({node, ...props}) => <ul className="list-disc list-inside my-2 text-base" {...props} />,
-                      ol: ({node, ...props}) => <ol className="list-decimal list-inside my-2 text-base" {...props} />,
-                      li: ({node, ...props}) => <li className="my-1" {...props} />,
+                      // Ensure headings and paragraphs render with white text
+                      h1: ({node, ...props}) => <h1 className="text-2xl font-bold my-4 text-white" {...props} />,
+                      h2: ({node, ...props}) => <h2 className="text-xl font-semibold my-3 text-white" {...props} />,
+                      h3: ({node, ...props}) => <h3 className="text-lg font-semibold my-2 text-white" {...props} />,
+                      h4: ({node, ...props}) => <h4 className="text-base font-semibold my-2 text-white" {...props} />,
+                      h5: ({node, ...props}) => <h5 className="text-sm font-semibold my-2 text-white" {...props} />,
+                      h6: ({node, ...props}) => <h6 className="text-xs font-semibold my-2 text-white" {...props} />,
+                      p: ({node, ...props}) => <p className="my-2 text-base text-white" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc list-inside my-2 text-base text-white" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal list-inside my-2 text-base text-white" {...props} />,
+                      li: ({node, ...props}) => <li className="my-1 text-white" {...props} />,
+                      strong: ({node, ...props}) => <strong className="font-bold text-white" {...props} />,
+                      em: ({node, ...props}) => <em className="italic text-white" {...props} />,
+                      blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-[#7dd3fc] pl-4 my-4 text-white italic" {...props} />,
                     }}
                   >
                     {preprocessMath(msg.content)}

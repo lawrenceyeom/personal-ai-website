@@ -1,41 +1,6 @@
-/* @tailwind base; */
-/* @tailwind components; */
-/* @tailwind utilities; */
-
+/* Minimal CSS for testing */
 body {
-  min-height: 100vh;
-  background: linear-gradient(to bottom right, #0f172a, #1e293b, #2563eb);
-  background-attachment: fixed;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-  color: #f3f4f6;
-  font-size: 1.125rem;
-  line-height: 1.75rem;
-}
-
-.card {
-  background-color: rgba(30, 35, 51, 0.8);
-  border-radius: 1rem;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(16px);
-  border: 1px solid #233056;
-}
-
-.card-gradient {
-  background: linear-gradient(135deg, #2563eb 0%, #0f172a 100%);
-  color: white;
-  border-radius: 1.25rem;
-  box-shadow: 0 4px 32px 0 rgba(37,99,235,0.12);
-}
-
-.btn-main {
-  background: linear-gradient(to right, #2563eb, #1e293b);
-  color: white;
-  font-weight: 600;
-  border-radius: 0.75rem;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-  transition: all 0.15s ease-in-out;
-}
-
-.btn-main:hover {
-  filter: brightness(1.25);
+  margin: 0;
+  padding: 0;
+  font-family: sans-serif;
 } 

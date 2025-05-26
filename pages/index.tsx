@@ -360,7 +360,7 @@ export default function HomePage() {
         const modelInfo = MODEL_MAPPING[model];
         if (modelInfo?.supports?.vision) {
           // 对于支持视觉的模型，使用多模态格式
-          const contentParts = [{ type: 'text', text: input + additionalContent }];
+          const contentParts: any[] = [{ type: 'text', text: input + additionalContent }];
           imageFiles.forEach(file => {
             if (file.url) {
               contentParts.push({ type: 'image_url', image_url: { url: file.url } });

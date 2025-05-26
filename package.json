@@ -8,16 +8,17 @@
   "devDependencies": {
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.3",
-    "postcss-nesting": "^12.0.0"
+    "postcss-nesting": "^12.0.0",
+    "tailwindcss": "^3.4.3"
   },
   "dependencies": {
+    "@types/formidable": "^3.4.5",
     "@types/node": "^20.0.0",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
-    "typescript": "^5.0.0",
     "axios": "^1.9.0",
     "clipboard": "^2.0.11",
+    "formidable": "^3.5.4",
     "hpagent": "^1.2.0",
     "https-proxy-agent": "^7.0.6",
     "katex": "^0.16.22",
@@ -29,7 +30,8 @@
     "rehype-highlight": "^7.0.2",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
-    "remark-math": "^6.0.0"
+    "remark-math": "^6.0.0",
+    "typescript": "^5.0.0"
   },
   "scripts": {
     "dev": "next dev",

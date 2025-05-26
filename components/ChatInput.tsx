@@ -276,7 +276,7 @@ export default function ChatInput({
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".txt,.pdf,.doc,.docx,.md"
+                    accept=".txt,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.md,.csv,.rtf"
                     onChange={handleFileUpload}
                     className="hidden"
                   />

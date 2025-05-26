@@ -674,30 +674,34 @@ export default function HomePage() {
     reader.readAsDataURL(file);
   };
 
-  const handleFileUpload = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      let content = '';
+  const handleFileUpload = async (file: File) => {
+    try {
+      // 导入文件处理工具
+      const { processDocument, isFileSizeAcceptable } = await import('../utils/fileProcessing');
       
-      // 对于文本文件，解码内容
-      if (file.type.startsWith('text/') || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
-        const base64Content = result.split(',')[1]; // 移除data:text/plain;base64,前缀
-        content = atob(base64Content);
+      // 检查文件大小
+      if (!isFileSizeAcceptable(file, 10)) {
+        alert('文件太大！请选择小于10MB的文件。');
+        return;
       }
+      
+      // 处理文档
+      const processedFile = await processDocument(file);
       
       const newFile: UploadedFile = {
         id: `file-${Date.now()}`,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        content: content || undefined
+        name: processedFile.name,
+        type: processedFile.type,
+        size: processedFile.size,
+        content: processedFile.content
       };
       
       setUploadedFiles(prev => [...prev, newFile]);
-      console.log('File uploaded:', file.name, file.type, 'Size:', file.size);
-    };
-    reader.readAsDataURL(file);
+      console.log('File uploaded and processed:', file.name, file.type, 'Size:', file.size);
+    } catch (error) {
+      console.error('Error processing file:', error);
+      alert('文件处理失败，请重试。');
+    }
   };
 
   const handleRemoveFile = (fileId: string) => {

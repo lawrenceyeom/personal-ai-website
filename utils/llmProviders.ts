@@ -254,6 +254,7 @@ export const MODEL_MAPPING: Record<string, {
     tools?: boolean;
     vision?: boolean;
     system_instructions?: boolean;
+    documents?: boolean; // 支持原生文档处理（PDF等）
   };
 }> = {
   // OpenAI GPT-4.1 系列模型（最新发布 - 2025年4月）
@@ -270,7 +271,8 @@ export const MODEL_MAPPING: Record<string, {
       thinking: false,
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // OpenAI支持直接PDF上传
     }
   },
   'gpt-4.1-mini': {
@@ -469,7 +471,8 @@ export const MODEL_MAPPING: Record<string, {
       thinking: true,
       tools: true,
       vision: true,
-      system_instructions: true
+      system_instructions: true,
+      documents: true // Gemini支持原生文档处理
     }
   },
   'gemini-2.5-flash': { 

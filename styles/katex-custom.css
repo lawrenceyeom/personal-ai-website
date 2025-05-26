@@ -1,0 +1,89 @@
+/* KaTeX 深色主题自定义样式 */
+
+/* 数学公式容器 */
+.katex-display {
+  margin: 1rem 0 !important;
+  padding: 1rem !important;
+  background-color: #101624 !important;
+  border: 1px solid #233056 !important;
+  border-radius: 0.5rem !important;
+  overflow-x: auto !important;
+}
+
+/* 行内数学公式 */
+.katex {
+  color: #7dd3fc !important;
+  font-size: 1.1em !important;
+}
+
+/* 数学公式文本颜色 */
+.katex .mord,
+.katex .mop,
+.katex .mrel,
+.katex .mbin,
+.katex .mpunct,
+.katex .mopen,
+.katex .mclose,
+.katex .minner {
+  color: #7dd3fc !important;
+}
+
+/* 数学公式符号 */
+.katex .mfrac .frac-line {
+  border-bottom-color: #7dd3fc !important;
+}
+
+/* 根号 */
+.katex .sqrt > .root {
+  color: #7dd3fc !important;
+}
+
+/* 上标下标 */
+.katex .msupsub {
+  color: #7dd3fc !important;
+}
+
+/* 矩阵和数组 */
+.katex .arraycolsep {
+  color: #7dd3fc !important;
+}
+
+/* 括号 */
+.katex .delimsizing,
+.katex .delim-size1,
+.katex .delim-size2,
+.katex .delim-size3,
+.katex .delim-size4 {
+  color: #7dd3fc !important;
+}
+
+/* 积分符号等 */
+.katex .op-symbol {
+  color: #7dd3fc !important;
+}
+
+/* 希腊字母 */
+.katex .mathit {
+  color: #93c5fd !important;
+}
+
+/* 函数名 */
+.katex .mop {
+  color: #60a5fa !important;
+}
+
+/* 数字 */
+.katex .mord.mathnormal {
+  color: #ddd6fe !important;
+}
+
+/* 运算符 */
+.katex .mbin,
+.katex .mrel {
+  color: #fbbf24 !important;
+}
+
+/* 确保在深色背景下可见 */
+.katex-html {
+  color: #7dd3fc !important;
+} 

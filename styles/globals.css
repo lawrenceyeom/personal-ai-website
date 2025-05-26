@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#2563eb] bg-fixed font-sans text-gray-100 text-lg;
+}
+
+.card {
+  @apply bg-[#1e2333]/80 rounded-2xl shadow-2xl backdrop-blur-md border border-[#233056];
+}
+
+.card-gradient {
+  background: linear-gradient(135deg, #2563eb 0%, #0f172a 100%);
+  color: white;
+  border-radius: 1.25rem;
+  box-shadow: 0 4px 32px 0 rgba(37,99,235,0.12);
+}
+
+.btn-main {
+  @apply bg-gradient-to-r from-[#2563eb] to-[#1e293b] text-white font-semibold rounded-xl shadow hover:brightness-125 transition;
+} 

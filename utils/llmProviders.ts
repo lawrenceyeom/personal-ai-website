@@ -1040,6 +1040,8 @@ async function callOpenAIStream(
       if (openaiFileMatches) {
         // For OpenAI, we need to use the attachments field
         const attachments: any[] = [];
+        let cleanTextContent = textContent;
+        
         openaiFileMatches.forEach(match => {
           const idMatch = match.match(/ID: (file-[^\]]+)/);
           if (idMatch) {
@@ -1047,12 +1049,14 @@ async function callOpenAIStream(
               file_id: idMatch[1],
               tools: [{ type: "file_search" }]
             });
+            // Remove file reference from text content
+            cleanTextContent = cleanTextContent.replace(match, '').trim();
           }
         });
         
         return { 
           role: m.role, 
-          content: textContent,
+          content: cleanTextContent || textContent,
           attachments: attachments.length > 0 ? attachments : undefined
         };
       }
@@ -1420,7 +1424,8 @@ async function callGeminiStream(
           } else {
             // Handle text content with potential file references
             const textContent = m.content as string;
-            const parts: any[] = [{ text: textContent }];
+            let cleanTextContent = textContent;
+            const parts: any[] = [];
             
             // Check for Gemini file URIs in the content
             const geminiFileMatches = textContent.match(/\[Gemini文件: .+?, URI: (files\/[^\]]+)\]/g);
@@ -1428,14 +1433,27 @@ async function callGeminiStream(
               geminiFileMatches.forEach(match => {
                 const uriMatch = match.match(/URI: (files\/[^\]]+)/);
                 if (uriMatch) {
+                  // Add file reference
                   parts.push({
                     fileData: {
                       fileUri: uriMatch[1],
                       mimeType: "application/pdf" // Default to PDF, could be enhanced
                     }
                   });
+                  // Remove file reference from text content
+                  cleanTextContent = cleanTextContent.replace(match, '').trim();
                 }
               });
+            }
+            
+            // Add text content if it's not empty
+            if (cleanTextContent) {
+              parts.unshift({ text: cleanTextContent });
+            }
+            
+            // If no parts were added, add empty text
+            if (parts.length === 0) {
+              parts.push({ text: textContent });
             }
             
             return { role, parts };

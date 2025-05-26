@@ -23,12 +23,19 @@ async function uploadToOpenAI(file: formidable.File, apiKey: string): Promise<Fi
   try {
     const FormData = require('form-data');
     const form = new FormData();
-    form.append('purpose', 'user_data');
+    
+    // 添加purpose字段 - 使用assistants而不是user_data
+    form.append('purpose', 'assistants');
+    
+    // 添加文件，确保正确的文件流和元数据
     form.append('file', fs.createReadStream(file.filepath), {
       filename: file.originalFilename || 'document.pdf',
       contentType: file.mimetype || 'application/pdf',
     });
 
+    // 使用node-fetch而不是axios来处理FormData
+    const fetch = require('node-fetch');
+    
     const response = await fetch('https://api.openai.com/v1/files', {
       method: 'POST',
       headers: {
@@ -39,27 +46,34 @@ async function uploadToOpenAI(file: formidable.File, apiKey: string): Promise<Fi
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`OpenAI API error: ${error}`);
+      const errorText = await response.text();
+      console.error('OpenAI API error response:', errorText);
+      throw new Error(`OpenAI API error: ${errorText}`);
     }
 
     const result = await response.json();
+    console.log('OpenAI file upload success:', result);
+
     return {
       fileId: result.id,
       mimeType: file.mimetype || 'application/pdf',
       provider: 'openai',
     };
   } catch (error: any) {
-    return { error: error.message };
+    console.error('OpenAI file upload error:', error.message);
+    return { 
+      error: `OpenAI file upload failed: ${error.message}` 
+    };
   }
 }
 
 // Gemini文件上传
 async function uploadToGemini(file: formidable.File, apiKey: string): Promise<FileUploadResult> {
   try {
+    const fetch = require('node-fetch');
+    
     // Gemini使用Files API
     const fileData = fs.readFileSync(file.filepath);
-    const base64Data = fileData.toString('base64');
     
     // 初始化上传
     const initResponse = await fetch(
@@ -80,6 +94,11 @@ async function uploadToGemini(file: formidable.File, apiKey: string): Promise<Fi
         }),
       }
     );
+
+    if (!initResponse.ok) {
+      const error = await initResponse.text();
+      throw new Error(`Gemini init upload error: ${error}`);
+    }
 
     const uploadUrl = initResponse.headers.get('x-goog-upload-url');
     if (!uploadUrl) {
@@ -103,12 +122,42 @@ async function uploadToGemini(file: formidable.File, apiKey: string): Promise<Fi
     }
 
     const result = await uploadResponse.json();
+    console.log('Gemini file upload result:', result);
+
+    // 等待文件处理完成
+    const fileUri = result.file.uri;
+    let fileState = 'PROCESSING';
+    let retries = 0;
+    const maxRetries = 10;
+    
+    while (fileState === 'PROCESSING' && retries < maxRetries) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 等待2秒
+      
+      const checkResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/${fileUri}?key=${apiKey}`,
+        { method: 'GET' }
+      );
+      
+      if (checkResponse.ok) {
+        const fileInfo = await checkResponse.json();
+        fileState = fileInfo.state;
+        console.log(`Gemini file state: ${fileState}, retry: ${retries}`);
+      }
+      
+      retries++;
+    }
+
+    if (fileState !== 'ACTIVE') {
+      throw new Error(`Gemini file processing failed. Final state: ${fileState}`);
+    }
+
     return {
-      fileUri: result.file.uri,
-      mimeType: result.file.mimeType,
+      fileUri: fileUri,
+      mimeType: result.file.mimeType || file.mimetype || 'application/pdf',
       provider: 'gemini',
     };
   } catch (error: any) {
+    console.error('Gemini file upload error:', error.message);
     return { error: error.message };
   }
 }

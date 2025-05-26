@@ -754,9 +754,29 @@ async function callDeepSeekStream(
 
     const isReasoner = req.model_id === 'deepseek-reasoner';
     
+    // Process messages for DeepSeek - handle multimodal content
+    const processedMessages = req.messages.map(m => {
+      if (Array.isArray(m.content)) {
+        // DeepSeek doesn't support vision, extract only text parts
+        const textParts = m.content
+          .filter(part => part.type === 'text')
+          .map(part => part.text)
+          .join('\n');
+        
+        // Add a note if there were images
+        const hasImages = m.content.some(part => part.type === 'image_url');
+        const finalContent = hasImages 
+          ? `${textParts}\n\n[注意：DeepSeek不支持图像理解，图片内容已被忽略]`
+          : textParts;
+          
+        return { role: m.role, content: finalContent };
+      }
+      return { role: m.role, content: m.content };
+    });
+    
     const bodyParams: any = {
       model: req.model_id,
-      messages: req.messages,
+      messages: processedMessages,
       stream: true,
     };
 
@@ -978,6 +998,20 @@ async function callOpenAIStream(
       if (m.role === 'tool') { 
         return { role: 'tool', tool_call_id: m.tool_call_id, name: m.name, content: m.content };
       }
+      
+      // Handle multimodal content for OpenAI
+      if (Array.isArray(m.content)) {
+        const contentParts: any[] = [];
+        for (const part of m.content) {
+          if (part.type === 'text') {
+            contentParts.push({ type: 'text', text: part.text });
+          } else if (part.type === 'image_url' && part.image_url?.url) {
+            contentParts.push({ type: 'image_url', image_url: { url: part.image_url.url } });
+          }
+        }
+        return { role: m.role, content: contentParts };
+      }
+      
       return { role: m.role, content: m.content };
     });
     
@@ -1663,7 +1697,21 @@ async function callGrokStream(
       'Authorization': `Bearer ${apiKey}`,
     };
 
-    const messages = req.messages.map(m => ({ role: m.role, content: m.content }));
+    const messages = req.messages.map(m => {
+      // Handle multimodal content for Grok (OpenAI-compatible format)
+      if (Array.isArray(m.content)) {
+        const contentParts: any[] = [];
+        for (const part of m.content) {
+          if (part.type === 'text') {
+            contentParts.push({ type: 'text', text: part.text });
+          } else if (part.type === 'image_url' && part.image_url?.url) {
+            contentParts.push({ type: 'image_url', image_url: { url: part.image_url.url } });
+          }
+        }
+        return { role: m.role, content: contentParts };
+      }
+      return { role: m.role, content: m.content };
+    });
 
     const modelDetails = MODEL_MAPPING[req.model];
     const isReasoner = modelDetails?.isReasoner || false;
@@ -1894,7 +1942,32 @@ async function callClaudeStream(
   const supportsThinking = modelDetails?.supports?.thinking || false;
   
   const systemPrompt = req.messages.find(m => m.role === 'system')?.content as string | undefined;
-  const userAssistantMessages = req.messages.filter(m => m.role === 'user' || m.role === 'assistant');
+  const userAssistantMessages = req.messages.filter(m => m.role === 'user' || m.role === 'assistant').map(m => {
+    // Handle multimodal content for Claude
+    if (Array.isArray(m.content)) {
+      const contentParts: any[] = [];
+      for (const part of m.content) {
+        if (part.type === 'text') {
+          contentParts.push({ type: 'text', text: part.text });
+        } else if (part.type === 'image_url' && part.image_url?.url) {
+          // Extract base64 data from data URL for Claude
+          const base64Match = part.image_url.url.match(/^data:image\/(\w+);base64,(.+)$/);
+          if (base64Match) {
+            contentParts.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: `image/${base64Match[1]}`,
+                data: base64Match[2]
+              }
+            });
+          }
+        }
+      }
+      return { role: m.role, content: contentParts };
+    }
+    return { role: m.role, content: m.content };
+  });
 
   const claudeModelId = req.model_id;
 

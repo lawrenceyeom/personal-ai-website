@@ -233,11 +233,36 @@ export default function HomePage() {
   const summarizeTitle = async (sessionId: string, messages: Message[]) => {
     if (messages.length < 2 || messages.length > 10) return; // Only summarize for reasonable length convos
     const conversationText = messages.slice(0, 5).map(m => `${m.role}: ${m.content}`).join('\n');
-    const prompt = `Summarize the following conversation into a short title (max 5 words):\n\n${conversationText}`;
     
+    // 🔧 优化：使用DeepSeek JSON输出功能，提供结构化的prompt
+    const prompt = `Please analyze the following conversation and generate a concise title in JSON format.
+
+CONVERSATION:
+${conversationText}
+
+Please output your response in JSON format with the following structure:
+
+EXAMPLE JSON OUTPUT:
+{
+  "title": "Quantum Computing Basics",
+  "description": "Discussion about quantum computing principles"
+}
+
+Requirements:
+- title: Maximum 5 words, concise and descriptive
+- description: Brief summary of the conversation topic
+- Output must be valid JSON format`;
+    
+    // 🔧 修复：获取DeepSeek API密钥
+    const deepseekApiKey = getApiKeyForProvider('deepseek');
+    if (!deepseekApiKey) {
+      console.warn('DeepSeek API密钥未配置，跳过标题总结');
+      return;
+    }
+
     // Get network options to pass to the API
     const currentNetworkOptions = getNetworkOptions();
-    console.log('Using title summarization with options:', currentNetworkOptions);
+    console.log('Using title summarization with JSON output, options:', currentNetworkOptions);
 
     try {
       const response = await fetch('/api/chat', {
@@ -249,30 +274,60 @@ export default function HomePage() {
           model: 'deepseek-chat', // Use DeepSeek for fast and reliable title generation
           messages: [{ role: 'user', content: prompt }],
           stream: false,
-          temperature: 0.7, // Lower temperature for more consistent titles
-          max_tokens: 50, // Short titles
+          temperature: 0.3, // 🔧 优化：降低温度以获得更一致的JSON输出
+          max_tokens: 100, // 🔧 优化：增加token数量以容纳JSON结构
+          response_format: { type: 'json_object' }, // 🔧 新增：启用JSON输出模式
+          apiKey: deepseekApiKey, // 🔧 修复：添加API密钥
           api_options: currentNetworkOptions
         }),
       });
       
       if (!response.ok) {
         console.error('Title summarization failed with status:', response.status);
+        const errorText = await response.text();
+        console.error('Error details:', errorText);
         return;
       }
       
       const data = await response.json();
-      console.log('Title summarization response:', data);
+      console.log('Title summarization JSON response:', data);
       
+      // 🔧 优化：解析JSON格式的响应
       if (data.title && typeof data.title === 'string') {
+        const titleText = data.title.trim();
+        console.log('✅ 从title字段获取标题:', titleText);
         setSessions(prevSessions =>
-          prevSessions.map(s => (s.id === sessionId ? { ...s, name: data.title.trim() } : s))
+          prevSessions.map(s => (s.id === sessionId ? { ...s, name: titleText } : s))
         );
       } else if (data.content && typeof data.content === 'string') {
-        // Use content field if title isn't available
-        const title = data.content.trim().substring(0, 30); // Limit length
-        setSessions(prevSessions =>
-          prevSessions.map(s => (s.id === sessionId ? { ...s, name: title } : s))
-        );
+        // 解析content字段中的JSON
+        try {
+          const contentJson = JSON.parse(data.content);
+          if (contentJson.title && typeof contentJson.title === 'string') {
+            const titleText = contentJson.title.trim();
+            console.log('✅ 从content中的JSON获取标题:', titleText);
+            setSessions(prevSessions =>
+              prevSessions.map(s => (s.id === sessionId ? { ...s, name: titleText } : s))
+            );
+          } else {
+            // 如果JSON解析失败，使用content的前30个字符作为标题
+            const fallbackTitle = data.content.trim().substring(0, 30);
+            console.log('⚠️ JSON解析失败，使用fallback标题:', fallbackTitle);
+            setSessions(prevSessions =>
+              prevSessions.map(s => (s.id === sessionId ? { ...s, name: fallbackTitle } : s))
+            );
+          }
+        } catch (jsonError) {
+          console.error('❌ JSON解析失败:', jsonError);
+          // 使用content的前30个字符作为标题
+          const fallbackTitle = data.content.trim().substring(0, 30);
+          console.log('⚠️ 使用fallback标题:', fallbackTitle);
+          setSessions(prevSessions =>
+            prevSessions.map(s => (s.id === sessionId ? { ...s, name: fallbackTitle } : s))
+          );
+        }
+      } else {
+        console.error('❌ 响应中没有找到title或content字段');
       }
     } catch (error) {
       console.error('Error summarizing title:', error);

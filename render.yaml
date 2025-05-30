@@ -6,4 +6,8 @@ services:
     startCommand: npm start
     envVars:
       - key: NODE_ENV
-        value: production 
+        value: production
+      - key: USE_PROXY
+        value: false
+      - key: API_TIMEOUT_MS
+        value: 60000 

@@ -30,13 +30,16 @@ export class ProxyManager {
   private loadProxyConfig(): ProxyConfig {
     const proxyUrl = process.env.PROXY_URL || 'http://localhost:7890';
     
-    // 在生产环境中默认不使用代理，除非明确设置
+    // 🔧 修复：在生产环境中完全禁用代理，确保Render部署正常工作
     let useProxy = false;
     if (process.env.NODE_ENV === 'production') {
-      useProxy = process.env.USE_PROXY === 'true';
+      // 生产环境（如Render）不使用代理
+      useProxy = false;
+      console.log('🌐 生产环境检测到，代理已禁用');
     } else {
-      // 开发环境默认启用代理
-      useProxy = true;
+      // 开发环境默认启用代理（本地开发需要）
+      useProxy = process.env.USE_PROXY !== 'false'; // 允许本地开发时通过环境变量禁用
+      console.log('🛠 开发环境检测到，代理状态:', useProxy ? '启用' : '禁用');
     }
 
     return {
@@ -49,25 +52,26 @@ export class ProxyManager {
   private initializeProxy(): void {
     if (typeof window !== 'undefined') {
       // 客户端环境不配置代理
-      console.log('客户端环境：代理配置跳过');
+      console.log('🖥 客户端环境：代理配置跳过');
       return;
     }
 
     if (!this.config.enabled) {
-      console.log('代理已禁用');
+      console.log('🚫 代理已禁用');
+      this.httpsAgent = null; // 确保agent为null
       return;
     }
 
     try {
       this.httpsAgent = new HttpsProxyAgent(this.config.url);
-      console.log(`代理已配置：${this.config.url}`);
+      console.log(`✅ 代理已配置：${this.config.url}`);
       
       // 设置环境变量（向后兼容）
       process.env.HTTP_PROXY = process.env.HTTP_PROXY || this.config.url;
       process.env.HTTPS_PROXY = process.env.HTTPS_PROXY || this.config.url;
       
     } catch (error: any) {
-      console.error('代理配置失败:', error.message);
+      console.error('❌ 代理配置失败:', error.message);
       this.httpsAgent = null;
     }
   }
@@ -76,6 +80,10 @@ export class ProxyManager {
    * 获取标准代理Agent（用于axios）
    */
   public getHttpsAgent(): any {
+    // 🔧 修复：在生产环境中始终返回null，确保不使用代理
+    if (process.env.NODE_ENV === 'production') {
+      return null;
+    }
     return this.httpsAgent;
   }
 
@@ -83,7 +91,12 @@ export class ProxyManager {
    * 获取fetch代理Agent（用于node-fetch）
    */
   public getFetchAgent(): any {
-    if (!this.config.enabled || typeof window !== 'undefined') {
+    // 🔧 修复：在生产环境或客户端环境中始终返回null
+    if (process.env.NODE_ENV === 'production' || typeof window !== 'undefined') {
+      return null;
+    }
+
+    if (!this.config.enabled) {
       return null;
     }
 
@@ -93,7 +106,7 @@ export class ProxyManager {
         timeout: this.config.timeout,
       });
     } catch (error: any) {
-      console.error('Fetch代理Agent创建失败:', error.message);
+      console.error('❌ Fetch代理Agent创建失败:', error.message);
       return null;
     }
   }
@@ -104,8 +117,12 @@ export class ProxyManager {
   public getAxiosConfig(baseConfig: any = {}): any {
     const config = { ...baseConfig };
     
-    if (this.config.enabled && this.httpsAgent) {
+    // 🔧 修复：只在开发环境且代理启用时才添加代理配置
+    if (process.env.NODE_ENV !== 'production' && this.config.enabled && this.httpsAgent) {
       config.httpsAgent = this.httpsAgent;
+      console.log('🔧 Axios代理配置已添加');
+    } else {
+      console.log('🌐 Axios直连模式（无代理）');
     }
     
     config.timeout = config.timeout || this.config.timeout;
@@ -119,9 +136,17 @@ export class ProxyManager {
   public getFetchConfig(baseConfig: any = {}): any {
     const config = { ...baseConfig };
     
-    const agent = this.getFetchAgent();
-    if (agent) {
-      config.agent = agent;
+    // 🔧 修复：只在开发环境且代理启用时才添加代理配置
+    if (process.env.NODE_ENV !== 'production') {
+      const agent = this.getFetchAgent();
+      if (agent) {
+        config.agent = agent;
+        console.log('🔧 Fetch代理配置已添加');
+      } else {
+        console.log('🌐 Fetch直连模式（无代理）');
+      }
+    } else {
+      console.log('🌐 生产环境Fetch直连模式（无代理）');
     }
     
     return config;
@@ -131,6 +156,10 @@ export class ProxyManager {
    * 检查代理是否启用
    */
   public isEnabled(): boolean {
+    // 🔧 修复：生产环境中始终返回false
+    if (process.env.NODE_ENV === 'production') {
+      return false;
+    }
     return this.config.enabled;
   }
 
@@ -152,6 +181,12 @@ export class ProxyManager {
    * 更新代理配置
    */
   public updateConfig(newConfig: Partial<ProxyConfig>): void {
+    // 🔧 修复：生产环境中不允许启用代理
+    if (process.env.NODE_ENV === 'production' && newConfig.enabled) {
+      console.warn('⚠️ 生产环境中不允许启用代理，配置被忽略');
+      return;
+    }
+    
     this.config = { ...this.config, ...newConfig };
     this.initializeProxy();
   }

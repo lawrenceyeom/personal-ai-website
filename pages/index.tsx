@@ -543,6 +543,11 @@ Requirements:
         throw new Error(`API Error: ${response.status} ${response.statusText}`);
       }
 
+      // 添加浏览器兼容性检查
+      if (!response.body.getReader) {
+        throw new Error('ReadableStream not supported in this environment');
+      }
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let sseBuffer = ''; // NEW buffer to handle partial SSE chunks
@@ -736,6 +741,14 @@ Requirements:
         );
       } else {
         console.error('Error sending message:', error);
+        console.error('Error details:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+          userAgent: navigator.userAgent,
+          uploadedFilesCount: uploadedFiles.length,
+          hasUploadedImage: !!uploadedImage
+        });
         const errorMessage = `Error: ${error.message || 'Failed to get response.'}`;
         
         // Update message with error and mark thinking as complete
@@ -1142,6 +1155,11 @@ Requirements:
 
       if (!response.ok || !response.body) {
         throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      }
+
+      // 添加浏览器兼容性检查
+      if (!response.body.getReader) {
+        throw new Error('ReadableStream not supported in this environment');
       }
 
       const reader = response.body.getReader();

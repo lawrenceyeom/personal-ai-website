@@ -1,7 +1,7 @@
 services:
   - type: web
     name: personal-ai-website
-    env: node 18
+    env: node 20
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:

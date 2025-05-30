@@ -437,4 +437,46 @@ export class OpenAIProvider extends BaseLLMProvider {
 
     onData(JSON.stringify({ finish_reason: 'stop' }), 'content_chunk');
   }
+
+  /**
+   * 处理多模态内容，包括文本、图像和文件
+   */
+  private processMultimodalContent(content: any): any {
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    if (Array.isArray(content)) {
+      const processed: any[] = [];
+      
+      for (const part of content) {
+        if (part.type === 'text') {
+          processed.push({ type: 'text', text: part.text });
+        } else if (part.type === 'image_url') {
+          processed.push({
+            type: 'image_url',
+            image_url: {
+              url: part.image_url.url,
+              detail: part.image_url.detail || 'auto'
+            }
+          });
+        } else if (part.fileData && part.fileData.fileUri) {
+          // Gemini格式的文件数据，不应该出现在OpenAI请求中
+          this.debugLog('File Warning', `Gemini fileData found in OpenAI request, skipping: ${part.fileData.fileUri}`);
+          console.warn('Gemini fileData found in OpenAI request, skipping:', part.fileData);
+        } else if (part.file_id) {
+          // OpenAI格式的文件引用
+          processed.push({
+            type: 'input_file',
+            file_id: part.file_id
+          });
+          this.debugLog('File Reference', `Added OpenAI file reference: ${part.file_id}`);
+        }
+      }
+      
+      return processed;
+    }
+
+    return content;
+  }
 } 

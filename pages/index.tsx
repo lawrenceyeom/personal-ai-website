@@ -597,14 +597,27 @@ Requirements:
               messageContent = input + additionalContent;
             }
           } else if (modelInfo.provider === 'openai') {
-            // OpenAI使用不同的文件引用格式
-            additionalContent += '\n\n--- 已上传文档 ---\n';
-            nativeDocFiles.forEach(file => {
-              if (file.fileId) {
-                additionalContent += `[OpenAI文件: ${file.name}, ID: ${file.fileId}]\n`;
-              }
-            });
-            messageContent = input + additionalContent;
+            // OpenAI使用input_file格式
+            const fileDataParts = nativeDocFiles.filter(f => f.fileId).map(file => ({
+              file_id: file.fileId
+            }));
+            
+            // 构建多模态消息内容
+            if (fileDataParts.length > 0) {
+              messageContent = [
+                { type: 'text', text: input },
+                ...fileDataParts
+              ];
+            } else {
+              // 如果没有有效的fileId，仍然使用文本方式
+              additionalContent += '\n\n--- 已上传文档 ---\n';
+              nativeDocFiles.forEach(file => {
+                if (file.fileId) {
+                  additionalContent += `[OpenAI文件: ${file.name}, ID: ${file.fileId}]\n`;
+                }
+              });
+              messageContent = input + additionalContent;
+            }
           } else {
             // 其他提供商的处理
             additionalContent += '\n\n--- 已上传文档 ---\n';

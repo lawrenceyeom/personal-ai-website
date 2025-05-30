@@ -29,7 +29,59 @@ function loadSessions(): ChatSession[] {
 // Save sessions to localStorage
 function saveSessions(sessions: ChatSession[]) {
   if (typeof window !== 'undefined') {
-    localStorage.setItem('chat_sessions', JSON.stringify(sessions));
+    try {
+      const sessionsData = JSON.stringify(sessions);
+      localStorage.setItem('chat_sessions', sessionsData);
+    } catch (error: any) {
+      if (error.name === 'QuotaExceededError') {
+        console.warn('LocalStorage quota exceeded, attempting to clean up old sessions...');
+        
+        // 尝试清理策略
+        try {
+          // 1. 首先删除已归档的会话
+          const archivedSessions = sessions.filter(s => s.archived);
+          if (archivedSessions.length > 0) {
+            const cleanedSessions = sessions.filter(s => !s.archived);
+            localStorage.setItem('chat_sessions', JSON.stringify(cleanedSessions));
+            console.log(`Cleaned ${archivedSessions.length} archived sessions`);
+            return;
+          }
+          
+          // 2. 如果没有归档会话，删除最旧的非当前会话
+          if (sessions.length > 10) {
+            const sortedSessions = [...sessions].sort((a, b) => b.lastUpdated - a.lastUpdated);
+            const recentSessions = sortedSessions.slice(0, 10);
+            localStorage.setItem('chat_sessions', JSON.stringify(recentSessions));
+            console.log(`Kept only ${recentSessions.length} most recent sessions`);
+            return;
+          }
+          
+          // 3. 最后手段：清理会话中的长消息内容
+          const compactSessions = sessions.map(session => ({
+            ...session,
+            messages: session.messages.map(msg => ({
+              ...msg,
+              content: typeof msg.content === 'string' && msg.content.length > 1000 
+                ? msg.content.substring(0, 1000) + '...[truncated]'
+                : msg.content,
+              thinking: msg.thinking && msg.thinking.length > 500 
+                ? msg.thinking.substring(0, 500) + '...[truncated]'
+                : msg.thinking
+            }))
+          }));
+          localStorage.setItem('chat_sessions', JSON.stringify(compactSessions));
+          console.log('Compacted session data by truncating long messages');
+          
+        } catch (retryError) {
+          console.error('Failed to clean up localStorage:', retryError);
+          // 清理失败，清空所有会话数据
+          localStorage.removeItem('chat_sessions');
+          alert('存储空间不足，已清空历史会话。请刷新页面重新开始。');
+        }
+      } else {
+        console.error('Error saving sessions:', error);
+      }
+    }
   }
 }
 
@@ -90,6 +142,47 @@ export default function HomePage() {
         });
         
         setDisabledProviders(newDisabled);
+
+        // 检查localStorage使用情况
+        try {
+          const sessionsData = localStorage.getItem('chat_sessions');
+          if (sessionsData) {
+            const sizeInBytes = new Blob([sessionsData]).size;
+            const sizeInMB = sizeInBytes / (1024 * 1024);
+            
+            // 估算localStorage配额（通常是5-10MB）
+            const estimatedQuotaMB = 5;
+            const usagePercentage = (sizeInMB / estimatedQuotaMB) * 100;
+            
+            console.log(`📊 LocalStorage usage: ${sizeInMB.toFixed(2)}MB (${usagePercentage.toFixed(1)}%)`);
+            
+            // 当使用超过80%时警告用户
+            if (usagePercentage > 80) {
+              console.warn('⚠️ LocalStorage usage high, consider clearing old sessions');
+              
+              // 当使用超过90%时显示用户提示
+              if (usagePercentage > 90) {
+                setTimeout(() => {
+                  const shouldClean = confirm(
+                    `存储空间使用率已达 ${usagePercentage.toFixed(1)}%\n\n` +
+                    `为了避免数据丢失，建议清理一些旧的会话记录。\n\n` +
+                    `是否现在清理已归档的会话？`
+                  );
+                  
+                  if (shouldClean) {
+                    const currentSessions = JSON.parse(localStorage.getItem('chat_sessions') || '[]');
+                    const cleanedSessions = currentSessions.filter((s: ChatSession) => !s.archived);
+                    localStorage.setItem('chat_sessions', JSON.stringify(cleanedSessions));
+                    location.reload(); // 刷新页面以加载清理后的数据
+                  }
+                }, 1000);
+              }
+            }
+          }
+        } catch (storageError) {
+          console.error('Error checking localStorage usage:', storageError);
+        }
+        
       } catch (error) {
         console.error('Error reading API keys from localStorage for UI disable state:', error);
         // 如果localStorage损坏，禁用所有提供商

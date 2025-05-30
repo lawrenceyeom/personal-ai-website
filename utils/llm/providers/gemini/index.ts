@@ -406,6 +406,15 @@ export class GeminiProvider extends BaseLLMProvider {
       });
     }
 
+    // 调试日志：显示最终构建的contents
+    this.debugLog('Built Contents', `Total contents: ${contents.length}`);
+    contents.forEach((content, index) => {
+      const fileRefs = content.parts?.filter((part: any) => part.fileData) || [];
+      if (fileRefs.length > 0) {
+        this.debugLog('Content Debug', `Content ${index} contains ${fileRefs.length} file(s): ${JSON.stringify(fileRefs)}`);
+      }
+    });
+
     return contents;
   }
 

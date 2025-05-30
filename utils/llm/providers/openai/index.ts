@@ -317,10 +317,20 @@ export class OpenAIProvider extends BaseLLMProvider {
 
     // 处理消息
     for (const message of messages) {
+      const processedContent = this.processMultimodalContent(message.content);
+      
       const openaiMessage: any = {
         role: message.role === 'tool' ? 'tool' : message.role,
-        content: this.processMultimodalContent(message.content)
+        content: processedContent
       };
+
+      // 调试日志：检查文件引用
+      if (Array.isArray(processedContent)) {
+        const fileRefs = processedContent.filter(part => part.type === 'file');
+        if (fileRefs.length > 0) {
+          this.debugLog('File References', `Found ${fileRefs.length} file references in message:`, fileRefs);
+        }
+      }
 
       // 处理工具调用相关字段
       if (message.tool_call_id) {
@@ -332,6 +342,17 @@ export class OpenAIProvider extends BaseLLMProvider {
 
       result.push(openaiMessage);
     }
+
+    // 调试日志：显示最终构建的消息
+    this.debugLog('Built Messages', `Total messages: ${result.length}`);
+    result.forEach((msg, index) => {
+      if (Array.isArray(msg.content)) {
+        const fileCount = msg.content.filter(part => part.type === 'file').length;
+        if (fileCount > 0) {
+          this.debugLog('Message Debug', `Message ${index} contains ${fileCount} file(s):`, msg.content);
+        }
+      }
+    });
 
     return result;
   }
@@ -460,17 +481,29 @@ export class OpenAIProvider extends BaseLLMProvider {
               detail: part.image_url.detail || 'auto'
             }
           });
-        } else if (part.fileData && part.fileData.fileUri) {
-          // Gemini格式的文件数据，不应该出现在OpenAI请求中
-          this.debugLog('File Warning', `Gemini fileData found in OpenAI request, skipping: ${part.fileData.fileUri}`);
-          console.warn('Gemini fileData found in OpenAI request, skipping:', part.fileData);
-        } else if (part.file_id) {
-          // OpenAI格式的文件引用
+        } else if (part.type === 'file' && part.file && part.file.file_id) {
+          // OpenAI原生文件格式
+          this.debugLog('File Processing', `Processing OpenAI file: ${part.file.file_id}`);
           processed.push({
-            type: 'input_file',
-            file_id: part.file_id
+            type: 'file',
+            file: {
+              file_id: part.file.file_id
+            }
           });
-          this.debugLog('File Reference', `Added OpenAI file reference: ${part.file_id}`);
+        } else if (part.fileData && part.fileData.fileUri) {
+          // Gemini格式的文件数据，转换为OpenAI格式（不应该出现在OpenAI中，但为了兼容性保留）
+          this.debugLog('File Conversion', `Converting Gemini fileData to OpenAI format: ${part.fileData.fileUri}`);
+          // 注意：这种情况下需要有fileId映射
+          console.warn('Gemini fileData format detected in OpenAI provider, need file_id mapping');
+        } else if (part.file_id) {
+          // 直接的file_id引用（旧格式兼容）
+          this.debugLog('File Processing', `Processing direct file_id: ${part.file_id}`);
+          processed.push({
+            type: 'file',
+            file: {
+              file_id: part.file_id
+            }
+          });
         }
       }
       

@@ -586,6 +586,12 @@ Requirements:
                 { type: 'text', text: input },
                 ...fileDataParts
               ];
+              // 调试日志：检查Gemini文件引用
+              console.log('🔍 Gemini多模态消息内容构建成功:', {
+                partsCount: fileDataParts.length,
+                fileDataParts,
+                messageContent
+              });
             } else {
               // 如果没有有效的fileUri，仍然使用文本方式
               additionalContent += '\n\n--- 已上传文档 ---\n';
@@ -597,9 +603,12 @@ Requirements:
               messageContent = input + additionalContent;
             }
           } else if (modelInfo.provider === 'openai') {
-            // OpenAI使用input_file格式
+            // OpenAI使用file格式，根据官方文档
             const fileDataParts = nativeDocFiles.filter(f => f.fileId).map(file => ({
-              file_id: file.fileId
+              type: 'file',
+              file: {
+                file_id: file.fileId
+              }
             }));
             
             // 构建多模态消息内容
@@ -608,6 +617,12 @@ Requirements:
                 { type: 'text', text: input },
                 ...fileDataParts
               ];
+              // 调试日志：检查Gemini文件引用
+              console.log('🔍 Gemini多模态消息内容构建成功:', {
+                partsCount: fileDataParts.length,
+                fileDataParts,
+                messageContent
+              });
             } else {
               // 如果没有有效的fileId，仍然使用文本方式
               additionalContent += '\n\n--- 已上传文档 ---\n';
@@ -704,6 +719,18 @@ Requirements:
     let reasoningBuffer = ''; // Start with empty reasoning buffer
 
     try {
+      // 构建最终的消息数组
+      const finalMessages = [
+        ...currentSession.messages.filter(m => m.id !== assistantMessageId)
+          .map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: messageContent }
+      ];
+      
+      // 调试日志：检查最终发送的消息
+      console.log('🔍 最终发送的消息数组:', finalMessages);
+      console.log('🔍 用户消息内容类型:', typeof messageContent);
+      console.log('🔍 用户消息内容:', messageContent);
+      
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -713,11 +740,7 @@ Requirements:
         body: JSON.stringify(
           addApiKeyToRequest({
             model: currentSession.model || model,
-            messages: [
-              ...currentSession.messages.filter(m => m.id !== assistantMessageId)
-                .map(m => ({ role: m.role, content: m.content })),
-              { role: 'user', content: messageContent }
-            ],
+            messages: finalMessages,
             stream: true,
             ...advancedSettings,
           } as LLMRequest)

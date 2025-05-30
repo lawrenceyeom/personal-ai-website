@@ -353,6 +353,19 @@ export class GeminiProvider extends BaseLLMProvider {
               this.debugLog('Image Error', `Failed to process image: ${error.message}`);
               // 继续处理其他内容，不因图像错误而失败
             }
+          } else if (part.fileData) {
+            // 处理Gemini文件数据格式
+            try {
+              content.parts.push({
+                fileData: {
+                  mimeType: part.fileData.mimeType,
+                  fileUri: part.fileData.fileUri
+                }
+              });
+              this.debugLog('File Data', `Added file: ${part.fileData.fileUri}`);
+            } catch (error) {
+              this.debugLog('File Error', `Failed to process file: ${error.message}`);
+            }
           }
         }
       } else if (message.content && typeof message.content === 'object') {

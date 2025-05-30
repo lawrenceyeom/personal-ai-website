@@ -322,6 +322,36 @@ export default function HomePage() {
     }
   };
 
+  // Batch delete sessions
+  const handleBatchDeleteSessions = (sessionIds: string[]) => {
+    if (sessionIds.length === 0) return;
+
+    setSessions(prevSessions => {
+      const filteredSessions = prevSessions.filter(s => !sessionIds.includes(s.id));
+      
+      // If current session was deleted, switch to another one
+      if (sessionIds.includes(currentSessionId || '')) {
+        if (filteredSessions.length > 0) {
+          const activeSessions = filteredSessions.filter(s => !s.archived);
+          const nextSession = activeSessions.length > 0 ? activeSessions[0] : filteredSessions[0];
+          setTimeout(() => {
+            setCurrentSessionId(nextSession.id);
+            setModel(nextSession.model || DEFAULT_MODEL);
+          }, 0);
+        } else {
+          // No sessions left, create a new one
+          setTimeout(() => {
+            handleNewSession();
+          }, 0);
+        }
+      }
+      
+      return filteredSessions;
+    });
+
+    console.log(`✅ 批量删除了 ${sessionIds.length} 个会话`);
+  };
+
   // Automatically summarize the conversation title
   const summarizeTitle = async (sessionId: string, messages: Message[]) => {
     if (messages.length < 2 || messages.length > 10) return; // Only summarize for reasonable length convos
@@ -412,12 +442,22 @@ Requirements:
           }
         } catch (jsonError) {
           console.error('❌ JSON解析失败:', jsonError);
-          // 使用content的前30个字符作为标题
-          const fallbackTitle = data.content.trim().substring(0, 30);
-          console.log('⚠️ 使用fallback标题:', fallbackTitle);
-          setSessions(prevSessions =>
-            prevSessions.map(s => (s.id === sessionId ? { ...s, name: fallbackTitle } : s))
-          );
+          // 如果content本身就包含JSON格式，尝试直接提取title
+          const titleMatch = data.content.match(/"title"\s*:\s*"([^"]+)"/);
+          if (titleMatch) {
+            const titleText = titleMatch[1].trim();
+            console.log('✅ 从正则匹配获取标题:', titleText);
+            setSessions(prevSessions =>
+              prevSessions.map(s => (s.id === sessionId ? { ...s, name: titleText } : s))
+            );
+          } else {
+            // 使用content的前30个字符作为标题
+            const fallbackTitle = data.content.trim().substring(0, 30);
+            console.log('⚠️ 使用fallback标题:', fallbackTitle);
+            setSessions(prevSessions =>
+              prevSessions.map(s => (s.id === sessionId ? { ...s, name: fallbackTitle } : s))
+            );
+          }
         }
       } else {
         console.error('❌ 响应中没有找到title或content字段');
@@ -530,21 +570,60 @@ Requirements:
       if (nativeDocFiles.length > 0) {
         const modelInfo = MODEL_MAPPING[model];
         if (modelInfo?.supports?.documents) {
-          // 对于支持原生文档处理的模型，在消息中添加文件引用
-          additionalContent += '\n\n--- 已上传文档 ---\n';
-          nativeDocFiles.forEach(file => {
-            if (file.fileId) {
-              additionalContent += `[OpenAI文件: ${file.name}, ID: ${file.fileId}]\n`;
-            } else if (file.fileUri) {
-              additionalContent += `[Gemini文件: ${file.name}, URI: ${file.fileUri}]\n`;
+          // 对于支持原生文档处理的模型，需要根据不同提供商处理文件引用
+          if (modelInfo.provider === 'google') {
+            // Gemini需要使用fileData格式，而不是在文本中引用
+            const fileDataParts = nativeDocFiles.filter(f => f.fileUri).map(file => ({
+              fileData: {
+                mimeType: file.type || 'application/pdf',
+                fileUri: file.fileUri
+              }
+            }));
+            
+            // 构建多模态消息内容
+            if (fileDataParts.length > 0) {
+              messageContent = [
+                { type: 'text', text: input },
+                ...fileDataParts
+              ];
+            } else {
+              // 如果没有有效的fileUri，仍然使用文本方式
+              additionalContent += '\n\n--- 已上传文档 ---\n';
+              nativeDocFiles.forEach(file => {
+                if (file.fileUri) {
+                  additionalContent += `[Gemini文件: ${file.name}, URI: ${file.fileUri}]\n`;
+                }
+              });
+              messageContent = input + additionalContent;
             }
-          });
+          } else if (modelInfo.provider === 'openai') {
+            // OpenAI使用不同的文件引用格式
+            additionalContent += '\n\n--- 已上传文档 ---\n';
+            nativeDocFiles.forEach(file => {
+              if (file.fileId) {
+                additionalContent += `[OpenAI文件: ${file.name}, ID: ${file.fileId}]\n`;
+              }
+            });
+            messageContent = input + additionalContent;
+          } else {
+            // 其他提供商的处理
+            additionalContent += '\n\n--- 已上传文档 ---\n';
+            nativeDocFiles.forEach(file => {
+              if (file.fileId) {
+                additionalContent += `[${modelInfo.provider}文件: ${file.name}, ID: ${file.fileId}]\n`;
+              } else if (file.fileUri) {
+                additionalContent += `[${modelInfo.provider}文件: ${file.name}, URI: ${file.fileUri}]\n`;
+              }
+            });
+            messageContent = input + additionalContent;
+          }
         } else {
           // 如果模型不支持，显示警告
           additionalContent += '\n\n--- 文档上传警告 ---\n';
           nativeDocFiles.forEach(file => {
             additionalContent += `[警告: ${file.name} 已上传但当前模型不支持原生文档处理]\n`;
           });
+          messageContent = input + additionalContent;
         }
       }
       
@@ -1451,6 +1530,7 @@ Requirements:
         onSwitchSession={handleSwitchSession}
         onArchiveSession={handleArchiveSession}
         onDeleteSession={handleDeleteSession}
+        onBatchDeleteSessions={handleBatchDeleteSessions}
         isOpen={isSidebarOpen}
       />
       

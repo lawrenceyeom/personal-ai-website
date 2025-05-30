@@ -10,6 +10,7 @@ interface SidebarProps {
   onSwitchSession: (sessionId: string) => void;
   onArchiveSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
+  onBatchDeleteSessions?: (sessionIds: string[]) => void;
   isOpen: boolean;
 }
 
@@ -20,11 +21,75 @@ export default function Sidebar({
   onSwitchSession,
   onArchiveSession,
   onDeleteSession,
+  onBatchDeleteSessions,
   isOpen 
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedSessions, setSelectedSessions] = useState<Set<string>>(new Set());
+
+  const toggleBatchMode = () => {
+    setBatchMode(!batchMode);
+    setSelectedSessions(new Set());
+  };
+
+  const toggleSessionSelection = (sessionId: string) => {
+    const newSelected = new Set(selectedSessions);
+    if (newSelected.has(sessionId)) {
+      newSelected.delete(sessionId);
+    } else {
+      newSelected.add(sessionId);
+    }
+    setSelectedSessions(newSelected);
+  };
+
+  const selectAllSessions = () => {
+    const allSessionIds = new Set(sessions.map(s => s.id));
+    setSelectedSessions(allSessionIds);
+  };
+
+  const deselectAllSessions = () => {
+    setSelectedSessions(new Set());
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedSessions.size === 0) {
+      alert('请选择要删除的对话');
+      return;
+    }
+
+    const selectedCount = selectedSessions.size;
+    const confirmMessage = `确定要删除选中的 ${selectedCount} 个对话吗？此操作不可撤销。`;
+    
+    if (confirm(confirmMessage)) {
+      if (onBatchDeleteSessions) {
+        onBatchDeleteSessions(Array.from(selectedSessions));
+      }
+      setSelectedSessions(new Set());
+      setBatchMode(false);
+    }
+  };
+
+  const handleClearAllSessions = () => {
+    const totalSessions = sessions.length;
+    if (totalSessions === 0) {
+      alert('没有可删除的会话');
+      return;
+    }
+
+    const confirmMessage = `⚠️ 危险操作！\n\n确定要删除全部 ${totalSessions} 个对话吗？\n\n此操作将：\n• 删除所有历史对话记录\n• 清空聊天历史\n• 释放存储空间\n\n此操作不可撤销！`;
+    
+    if (confirm(confirmMessage)) {
+      const secondConfirm = confirm('再次确认：真的要删除所有对话吗？');
+      if (secondConfirm && onBatchDeleteSessions) {
+        onBatchDeleteSessions(sessions.map(s => s.id));
+        setBatchMode(false);
+        setSelectedSessions(new Set());
+      }
+    }
+  };
 
   // Categorize sessions
   const { todaySessions, yesterdaySessions, thisWeekSessions, olderSessions, archivedSessions } = useMemo(() => {
@@ -65,17 +130,30 @@ export default function Sidebar({
                 currentSessionId === session.id 
                   ? 'bg-gradient-to-r from-blue-600/20 to-purple-600/20 shadow-lg' 
                   : 'hover:bg-slate-800/50'
-              }`}
+              } ${batchMode ? 'pr-12' : ''}`}
               onMouseEnter={() => setHoveredSession(session.id)}
               onMouseLeave={() => setHoveredSession(null)}
             >
+              {/* 批量选择模式下的选择框 */}
+              {batchMode && (
+                <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedSessions.has(session.id)}
+                    onChange={() => toggleSessionSelection(session.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500 focus:ring-2"
+                  />
+                </div>
+              )}
+
               <button
-                onClick={() => onSwitchSession(session.id)}
+                onClick={() => batchMode ? toggleSessionSelection(session.id) : onSwitchSession(session.id)}
                 className={`w-full text-left px-4 py-3 rounded-lg transition-colors ${
                   currentSessionId === session.id 
                     ? 'text-white' 
                     : 'text-slate-300 hover:text-white'
-                }`}
+                } ${batchMode ? 'pl-8' : ''}`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
@@ -92,8 +170,8 @@ export default function Sidebar({
                 </div>
               </button>
               
-              {/* Action buttons on hover */}
-              {hoveredSession === session.id && (
+              {/* Action buttons on hover - 只在非批量模式下显示 */}
+              {!batchMode && hoveredSession === session.id && (
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={(e) => {
@@ -139,13 +217,74 @@ export default function Sidebar({
         <div className="p-4 border-b border-slate-700/50">
           <button
             onClick={onNewSession}
-            className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
+            className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 flex items-center justify-center gap-2 shadow-lg mb-3"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             New Conversation
           </button>
+
+          {/* 批量操作按钮区域 */}
+          <div className="flex gap-2">
+            {!batchMode ? (
+              <button
+                onClick={toggleBatchMode}
+                className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                title="批量管理对话"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                批量操作
+              </button>
+            ) : (
+              <>
+                {/* 批量操作模式下的控制按钮 */}
+                <button
+                  onClick={selectedSessions.size === sessions.length ? deselectAllSessions : selectAllSessions}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-md text-xs font-medium transition-colors"
+                  title={selectedSessions.size === sessions.length ? "取消全选" : "全选"}
+                >
+                  {selectedSessions.size === sessions.length ? "取消全选" : "全选"}
+                </button>
+                <button
+                  onClick={handleBatchDelete}
+                  disabled={selectedSessions.size === 0}
+                  className="px-3 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-md text-xs font-medium transition-colors flex items-center gap-1"
+                  title="删除选中的对话"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  删除({selectedSessions.size})
+                </button>
+                <button
+                  onClick={toggleBatchMode}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-md text-xs font-medium transition-colors"
+                  title="退出批量模式"
+                >
+                  退出
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* 清空所有会话按钮 - 独立区域 */}
+          {sessions.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-slate-700/50">
+              <button
+                onClick={handleClearAllSessions}
+                className="w-full px-3 py-2 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 rounded-md text-xs font-medium transition-colors flex items-center justify-center gap-2 border border-red-900/30"
+                title="清空所有对话记录"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                清空所有会话 ({sessions.length})
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Search */}

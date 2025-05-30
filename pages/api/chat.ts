@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { callLLMStream, LLMRequest } from '../../utils/llmProviders';
+import { callLLMStream, LLMRequest } from '../../utils/llm';
 
 export const config = {
   api: {

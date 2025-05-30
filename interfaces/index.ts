@@ -5,7 +5,7 @@
 // import { User } from 'path/to/interfaces';
 
 // Common interface definitions for the AI chat application
-import { LLMRequest } from '../utils/llmProviders';
+import { LLMRequest } from '../utils/llm';
 
 // Message interface for chat messages
 export interface Message {

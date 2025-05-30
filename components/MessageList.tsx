@@ -9,7 +9,7 @@ import remarkGfm from 'remark-gfm';
 import Clipboard from 'clipboard';
 import { useEffect, useRef } from 'react';
 import { Message } from '../interfaces';
-import { LLMRequest } from '../utils/llmProviders';
+import { LLMRequest } from '../utils/llm';
 import { preprocessMath } from '../utils/mathProcessor';
 
 interface MessageListProps {

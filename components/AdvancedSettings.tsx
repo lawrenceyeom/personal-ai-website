@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MODEL_MAPPING } from '../utils/llmProviders';
+import { getModelMapping } from '../utils/llm';
 
 interface AdvancedSettingsProps {
   selectedModel: string;
@@ -30,7 +30,8 @@ export default function AdvancedSettings({
     settings.stop_sequences?.join(', ') || ''
   );
 
-  const modelInfo = MODEL_MAPPING[selectedModel];
+  const modelMapping = getModelMapping();
+  const modelInfo = modelMapping[selectedModel];
   const supports = modelInfo?.supports || {};
 
   // Update stop sequences text when settings change
@@ -123,24 +124,13 @@ export default function AdvancedSettings({
 
   return (
     <div className="bg-[#0f172a] border border-[#233056] rounded-lg overflow-hidden">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-4 py-3 flex justify-between items-center bg-[#101624] hover:bg-[#1e293b] transition-colors"
-      >
-        <div className="flex items-center gap-2">
+      <div className="w-full px-4 py-3 flex justify-between items-center bg-[#101624]">
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-2 hover:bg-[#1e293b] transition-colors px-2 py-1 rounded -mx-2 -my-1"
+        >
           <span className="text-sm font-medium text-gray-300">高级设置</span>
           <span className="text-xs text-gray-500">({selectedModel})</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              resetToDefaults();
-            }}
-            className="text-xs text-[#7dd3fc] hover:text-white px-2 py-1 bg-[#2563eb] hover:bg-[#1d4ed8] rounded"
-          >
-            重置
-          </button>
           <svg
             className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
             fill="none"
@@ -149,8 +139,15 @@ export default function AdvancedSettings({
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
-        </div>
-      </button>
+        </button>
+        
+        <button
+          onClick={resetToDefaults}
+          className="text-xs text-[#7dd3fc] hover:text-white px-2 py-1 bg-[#2563eb] hover:bg-[#1d4ed8] rounded transition-colors"
+        >
+          重置
+        </button>
+      </div>
 
       {isExpanded && (
         <div className="p-4 space-y-6">

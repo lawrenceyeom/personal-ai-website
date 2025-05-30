@@ -1,16 +1,20 @@
 // pages/index.tsx
 // 主页：AI多模型对话主界面，包含模型切换、历史会话管理、流式对话、消息渲染等核心功能。
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import Head from 'next/head';
 import Sidebar from '../components/Sidebar';
 import TopBar from '../components/TopBar';
-import PromptCards from '../components/PromptCards';
 import MessageList from '../components/MessageList';
 import ChatInput, { UploadedFile } from '../components/ChatInput';
 import ModelSelector from '../components/ModelSelector';
 import AdvancedSettings from '../components/AdvancedSettings';
-import { LLMRequest } from '../utils/llmProviders';
-import { MODEL_MAPPING } from '../utils/llmProviders';
+import { LLMRequest, getModelMapping } from '../utils/llm';
 import { Message, ChatSession } from '../interfaces';
+import { processDocument, analyzeFileSupport, ProcessingResult, ProcessingStatus } from '../utils/fileProcessing';
+import { isReasoningModel } from '../utils/llm';
+
+// 使用新的getModelMapping函数获取模型映射
+const MODEL_MAPPING = getModelMapping();
 
 // Load sessions from localStorage
 function loadSessions(): ChatSession[] {
@@ -29,7 +33,7 @@ function saveSessions(sessions: ChatSession[]) {
   }
 }
 
-const DEFAULT_MODEL = 'deepseek-v3';
+const DEFAULT_MODEL = 'deepseek-chat';
 
 export default function HomePage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -55,29 +59,41 @@ export default function HomePage() {
     system?: string;
   }>({});
   
-  // Only Claude is potentially disabled if no key is found in localStorage.
-  // DeepSeek has a default key. Gemini and GPT have test keys as fallbacks in llmProviders.ts.
+  // 检查API key以确定哪些提供商应该被禁用
+  // 只有配置了API key的提供商才会在UI中启用
   const [disabledProviders, setDisabledProviders] = useState<string[]>([]);
   
   // Ref for the abort controller to cancel API requests
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Check for available API keys to update UI for Claude
+  // Check for available API keys to update UI for disabled providers
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
         const savedKeys = JSON.parse(localStorage.getItem('api_keys') || '{}');
         const newDisabled: string[] = [];
         
-        // Claude is disabled in UI if no key is in localStorage (it has no test/default key)
-        if (!savedKeys['claude']) {
-          newDisabled.push('claude');
-        }
+        // 提供商名称到设置键的映射（与getApiKeyForProvider保持一致）
+        const providerToSettingsKey: { [key: string]: string } = {
+          'openai': 'gpt',
+          'anthropic': 'claude', 
+          'google': 'gemini',
+          'deepseek': 'deepseek',
+          'xai': 'grok'
+        };
+        
+        // 检查每个提供商的API key，如果没有则禁用
+        Object.entries(providerToSettingsKey).forEach(([provider, settingsKey]) => {
+          if (!savedKeys[settingsKey]) {
+            newDisabled.push(provider);
+          }
+        });
+        
         setDisabledProviders(newDisabled);
       } catch (error) {
         console.error('Error reading API keys from localStorage for UI disable state:', error);
-        // If localStorage is corrupted, assume Claude is disabled for the UI.
-        setDisabledProviders(['claude']);
+        // 如果localStorage损坏，禁用所有提供商
+        setDisabledProviders(['openai', 'anthropic', 'google', 'xai']);
       }
     }
   }, []);
@@ -230,10 +246,10 @@ export default function HomePage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'deepseek-v3', // Use DeepSeek for fast and reliable title generation
+          model: 'deepseek-chat', // Use DeepSeek for fast and reliable title generation
           messages: [{ role: 'user', content: prompt }],
           stream: false,
-          temperature: 0.3, // Lower temperature for more consistent titles
+          temperature: 0.7, // Lower temperature for more consistent titles
           max_tokens: 50, // Short titles
           api_options: currentNetworkOptions
         }),
@@ -267,8 +283,22 @@ export default function HomePage() {
   const getApiKeyForProvider = (providerName: string): string | undefined => {
     if (typeof window !== 'undefined') {
       try {
+        // 提供商名称到设置键的映射
+        const providerToSettingsKey: { [key: string]: string } = {
+          'openai': 'gpt',
+          'anthropic': 'claude', 
+          'google': 'gemini',
+          'deepseek': 'deepseek',
+          'xai': 'grok'
+        };
+        
+        const settingsKey = providerToSettingsKey[providerName] || providerName;
         const savedKeys = JSON.parse(localStorage.getItem('api_keys') || '{}');
-        return savedKeys[providerName];
+        const apiKey = savedKeys[settingsKey];
+        
+        console.log(`[API Key Debug] Provider: ${providerName}, Settings Key: ${settingsKey}, Has Key: ${!!apiKey}`);
+        
+        return apiKey;
       } catch (error) {
         console.error('Error reading API keys:', error);
       }
@@ -500,9 +530,12 @@ export default function HomePage() {
           try {
             const parsedSSE = JSON.parse(jsonData);
             
-            // The API now returns direct JSON objects rather than {type, data} format
-            // Extract data directly from the parsed JSON since it doesn't have the expected format
-            if (parsedSSE.content) {
+            // Handle direct thinking data from Gemini (new format)
+            if (parsedSSE.thinking) {
+              // Gemini思考内容直接处理
+              reasoningBuffer += `${parsedSSE.thinking}\n`;
+              updateAssistantMessage(currentSessionId, assistantMessageId, accumulatedResponse, reasoningBuffer, true);
+            } else if (parsedSSE.content) {
               // Regular content to display in the message
               accumulatedResponse += parsedSSE.content;
               
@@ -559,7 +592,13 @@ export default function HomePage() {
               }
 
               // Process different types of chunks
-              if (stepType === 'thinking_step' && eventData.content) {
+              if (stepType === 'thinking_step' && eventData.thinking) {
+                // Gemini的思考内容（使用thinking字段）
+                reasoningBuffer += `${eventData.thinking}\n`;
+                
+                // Update the message with new thinking content but keep isThinking true
+                updateAssistantMessage(currentSessionId, assistantMessageId, accumulatedResponse, reasoningBuffer, true);
+              } else if (stepType === 'thinking_step' && eventData.content) {
                 // Add to reasoning buffer when we get thinking steps
                 reasoningBuffer += `${eventData.content}\n`;
                 
@@ -699,27 +738,118 @@ export default function HomePage() {
 
   const handleFileUpload = async (file: File) => {
     try {
-      // 导入文件处理工具
-      const { processDocument, isFileSizeAcceptable } = await import('../utils/fileProcessing');
+      // 导入增强的文件处理工具
+      const { 
+        processDocument, 
+        analyzeFileSupport, 
+        generateUploadRecommendation,
+        isFileSizeAcceptable,
+        isFileFormatSupported
+      } = await import('../utils/fileProcessing');
       
-      // 检查文件大小
-      if (!isFileSizeAcceptable(file, 10)) {
-        alert('文件太大！请选择小于10MB的文件。');
+      // 获取当前模型信息
+      const modelInfo = MODEL_MAPPING[model];
+      const provider = String(modelInfo?.provider || 'unknown').toLowerCase();
+      
+      console.log('🔍 handleFileUpload Debug:', {
+        model,
+        modelInfo,
+        originalProvider: modelInfo?.provider,
+        convertedProvider: provider,
+        fileInfo: {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          sizeMB: (file.size / 1024 / 1024).toFixed(2)
+        }
+      });
+      
+      // 0. 首先检查当前模型是否支持文档处理
+      if (!modelInfo?.supports?.documents) {
+        const shouldSwitch = confirm(
+          `当前模型 ${model} 不支持文档处理功能。\n\n` +
+          `推荐切换到支持文档的模型：\n` +
+          `• GPT-4.1 (OpenAI旗舰模型)\n` +
+          `• GPT-4o 或 GPT-4o-mini (多模态模型)\n` +
+          `• Gemini 2.5 Pro/Flash (Google模型)\n\n` +
+          `是否要继续进行本地文本提取？`
+        );
+        
+        if (!shouldSwitch) {
+          return;
+        }
+        
+        // 用户选择继续，但只能进行本地处理
+        console.log('⚠️ 用户选择在不支持文档的模型上进行本地处理');
+      }
+      
+      // 1. 首先检查文件格式支持
+      const formatCheck = isFileFormatSupported(file, provider);
+      if (!formatCheck.supported) {
+        const shouldContinue = confirm(`${formatCheck.reason}\n\n${formatCheck.recommendation}\n\n是否仍要尝试本地文本提取？`);
+        if (!shouldContinue) {
+          return;
+        }
+      }
+      
+      // 2. 然后检查文件大小
+      const fileSizeMB = file.size / 1024 / 1024;
+      const maxSize = 32; // OpenAI的最大限制
+      
+      console.log('🔍 文件大小检查:', {
+        fileSizeMB: fileSizeMB.toFixed(2),
+        maxSize,
+        provider,
+        fileType: file.type
+      });
+      
+      const sizeAcceptable = isFileSizeAcceptable(file, provider, maxSize);
+      console.log('🔍 文件大小检查结果:', sizeAcceptable);
+      
+      if (!sizeAcceptable) {
+        // 根据提供商给出具体的大小限制提示
+        let errorMessage = `文件太大！文件大小：${fileSizeMB.toFixed(1)}MB\n\n`;
+        
+        if (provider === 'openai' || provider === 'gpt') {
+          errorMessage += `OpenAI支持的文档最大32MB`;
+        } else if (provider === 'gemini' || provider === 'google') {
+          errorMessage += `Gemini内联文档最大20MB，大文件可使用File API`;
+        } else {
+          errorMessage += `当前模型最大支持${maxSize}MB的文件`;
+        }
+        
+        alert(errorMessage);
         return;
       }
       
-      // 检查当前模型是否支持原生文档处理
-      const modelInfo = MODEL_MAPPING[model];
-      const supportsNativeDocuments = modelInfo?.supports?.documents;
+      // 3. 分析文件支持情况
+      const supportAnalysis = analyzeFileSupport(file, provider);
+      console.log('File support analysis:', supportAnalysis);
       
-      if (supportsNativeDocuments) {
-        // 对于支持原生文档处理的模型，上传文件到对应的API
+      // 生成上传建议并显示给用户
+      const recommendation = generateUploadRecommendation(file, provider);
+      console.log('Upload recommendation:', recommendation);
+      
+      // 根据分析结果选择处理方式
+      if (supportAnalysis.supported && supportAnalysis.method === 'native' && modelInfo?.supports?.documents) {
+        // 原生文档处理
         try {
           const apiKey = getApiKeyForProvider(modelInfo.provider);
           if (!apiKey) {
-            alert(`请先设置${modelInfo.provider}的API密钥`);
+            alert(`请先设置${modelInfo.provider}的API密钥才能使用文档处理功能`);
             return;
           }
+          
+          // 显示上传进度提示
+          const uploadingFile: UploadedFile = {
+            id: `uploading-${Date.now()}`,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            content: `🔄 正在上传到${provider}...`,
+            provider: provider
+          };
+          setUploadedFiles(prev => [...prev, uploadingFile]);
           
           // 创建FormData上传文件
           const formData = new FormData();
@@ -739,55 +869,123 @@ export default function HomePage() {
           
           const uploadResult = await uploadResponse.json();
           
-          // 创建包含文件引用的UploadedFile对象
-          const newFile: UploadedFile = {
+          // 更新文件状态为成功
+          const successFile: UploadedFile = {
             id: `file-${Date.now()}`,
             name: file.name,
             type: file.type,
             size: file.size,
-            content: `[原生文档处理] ${file.name} - 已上传到${modelInfo.provider}`,
+            content: `✅ [${provider}原生文档] ${file.name}\n\n文件已成功上传到${provider}的文档处理服务`,
             // 存储文件引用信息
             fileId: uploadResult.fileId,
             fileUri: uploadResult.fileUri,
             provider: uploadResult.provider
           };
           
-          setUploadedFiles(prev => [...prev, newFile]);
-          console.log('File uploaded to API:', file.name, 'Provider:', modelInfo.provider);
+          // 移除上传中的文件，添加成功的文件
+          setUploadedFiles(prev => 
+            prev.filter(f => f.id !== uploadingFile.id).concat(successFile)
+          );
           
-        } catch (error) {
-          console.error('Error uploading file to API:', error);
-          alert(`文件上传失败: ${error.message}`);
+          console.log('✅ File uploaded to API:', file.name, 'Provider:', provider);
           
-          // 回退到本地处理
-          const processedFile = await processDocument(file);
-          const newFile: UploadedFile = {
-            id: `file-${Date.now()}`,
-            name: processedFile.name,
-            type: processedFile.type,
-            size: processedFile.size,
-            content: processedFile.content
-          };
-          setUploadedFiles(prev => [...prev, newFile]);
+        } catch (error: any) {
+          console.error('❌ Error uploading file to API:', error);
+          
+          // 移除上传中的文件
+          setUploadedFiles(prev => prev.filter(f => f.id.startsWith('uploading-')));
+          
+          // 询问用户是否回退到本地处理
+          const shouldFallback = confirm(`文档上传失败: ${error.message}\n\n是否尝试本地文本提取？`);
+          
+          if (shouldFallback) {
+            // 回退到本地处理
+            const processingResult = await processDocument(file, provider);
+            
+            let content = processingResult.file.content || '';
+            if (processingResult.warnings && processingResult.warnings.length > 0) {
+              content += `\n\n⚠️ 处理警告:\n${processingResult.warnings.join('\n')}`;
+            }
+            if (processingResult.errors && processingResult.errors.length > 0) {
+              content += `\n\n❌ 处理错误:\n${processingResult.errors.join('\n')}`;
+            }
+            
+            const newFile: UploadedFile = {
+              id: `file-${Date.now()}`,
+              name: processingResult.file.name,
+              type: processingResult.file.type,
+              size: processingResult.file.size,
+              content: `⚠️ [本地处理] ${content}`
+            };
+            setUploadedFiles(prev => [...prev, newFile]);
+            console.log('📄 File processed locally:', file.name, file.type, 'Size:', file.size);
+            
+            // 根据处理状态给出反馈
+            if (processingResult.status === 'success') {
+              console.log('✅ 文件处理成功');
+            } else if (processingResult.status === 'partial') {
+              setTimeout(() => {
+                alert(`⚠️ 文件部分处理成功。\n\n${processingResult.warnings?.join('\n') || ''}`);
+              }, 100);
+            } else if (processingResult.status === 'failed') {
+              setTimeout(() => {
+                alert(`❌ 文件处理失败。\n\n${processingResult.errors?.join('\n') || ''}`);
+              }, 100);
+            }
+            
+            // 如果是因为提供商不支持，给出建议
+            if (!supportAnalysis.supported) {
+              setTimeout(() => {
+                alert(`${recommendation}\n\n文件已进行本地文本提取，但可能无法获得最佳效果。`);
+              }, 100);
+            }
+          }
         }
       } else {
-        // 对于不支持原生文档处理的模型，使用本地处理
-        const processedFile = await processDocument(file);
+        // 本地处理（文本提取或不支持的提供商）
+        const processingResult = await processDocument(file, provider);
+        
+        let content = processingResult.file.content || '';
+        if (processingResult.warnings && processingResult.warnings.length > 0) {
+          content += `\n\n⚠️ 处理警告:\n${processingResult.warnings.join('\n')}`;
+        }
+        if (processingResult.errors && processingResult.errors.length > 0) {
+          content += `\n\n❌ 处理错误:\n${processingResult.errors.join('\n')}`;
+        }
         
         const newFile: UploadedFile = {
           id: `file-${Date.now()}`,
-          name: processedFile.name,
-          type: processedFile.type,
-          size: processedFile.size,
-          content: processedFile.content
+          name: processingResult.file.name,
+          type: processingResult.file.type,
+          size: processingResult.file.size,
+          content: `⚠️ [本地处理] ${content}`
         };
-        
         setUploadedFiles(prev => [...prev, newFile]);
-        console.log('File processed locally:', file.name, file.type, 'Size:', file.size);
+        console.log('📄 File processed locally:', file.name, file.type, 'Size:', file.size);
+        
+        // 根据处理状态给出反馈
+        if (processingResult.status === 'success') {
+          console.log('✅ 文件处理成功');
+        } else if (processingResult.status === 'partial') {
+          setTimeout(() => {
+            alert(`⚠️ 文件部分处理成功。\n\n${processingResult.warnings?.join('\n') || ''}`);
+          }, 100);
+        } else if (processingResult.status === 'failed') {
+          setTimeout(() => {
+            alert(`❌ 文件处理失败。\n\n${processingResult.errors?.join('\n') || ''}`);
+          }, 100);
+        }
+        
+        // 如果是因为提供商不支持，给出建议
+        if (!supportAnalysis.supported) {
+          setTimeout(() => {
+            alert(`${recommendation}\n\n文件已进行本地文本提取，但可能无法获得最佳效果。`);
+          }, 100);
+        }
       }
     } catch (error) {
-      console.error('Error processing file:', error);
-      alert('文件处理失败，请重试。');
+      console.error('💥 Error processing file:', error);
+      alert('文件处理失败，请重试。如果问题持续存在，请检查文件格式和大小。');
     }
   };
 
@@ -939,9 +1137,12 @@ export default function HomePage() {
           try {
             const parsedSSE = JSON.parse(jsonData);
             
-            // The API now returns direct JSON objects rather than {type, data} format
-            // Extract data directly from the parsed JSON since it doesn't have the expected format
-            if (parsedSSE.content) {
+            // Handle direct thinking data from Gemini (new format)
+            if (parsedSSE.thinking) {
+              // Gemini思考内容直接处理
+              reasoningBuffer += `${parsedSSE.thinking}\n`;
+              updateAssistantMessage(currentSessionId, messageId, accumulatedResponse, reasoningBuffer, true);
+            } else if (parsedSSE.content) {
               // Regular content to display in the message
               accumulatedResponse += parsedSSE.content;
               
@@ -992,11 +1193,23 @@ export default function HomePage() {
               }
 
               // Process different types of chunks
-              if (stepType === 'thinking_step' && eventData.content) {
+              if (stepType === 'thinking_step' && eventData.thinking) {
+                // Gemini的思考内容（使用thinking字段）
+                reasoningBuffer += `${eventData.thinking}\n`;
+                
+                // Update the message with new thinking content but keep isThinking true
+                updateAssistantMessage(currentSessionId, messageId, accumulatedResponse, reasoningBuffer, true);
+              } else if (stepType === 'thinking_step' && eventData.content) {
+                // Add to reasoning buffer when we get thinking steps
                 reasoningBuffer += `${eventData.content}\n`;
+                
+                // Update the message with new thinking content but keep isThinking true
                 updateAssistantMessage(currentSessionId, messageId, accumulatedResponse, reasoningBuffer, true);
               } else if (stepType === 'thinking_step' && eventData.reasoning_content) {
+                // Add to reasoning buffer when we get reasoning content
                 reasoningBuffer += `${eventData.reasoning_content}\n`;
+                
+                // Update the message with new thinking content but keep isThinking true
                 updateAssistantMessage(currentSessionId, messageId, accumulatedResponse, reasoningBuffer, true);
               } else if (stepType === 'step' && eventData.content) {
                 reasoningBuffer += `Step: ${eventData.content}\n`;
@@ -1075,9 +1288,17 @@ export default function HomePage() {
         isOpen={isSidebarOpen}
       />
       
-      {/* Main Content Area - Add margin-left when sidebar is open */}
+      {/* 小屏幕背景遮罩 */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+      
+      {/* Main Content Area - 响应式侧边栏适配 */}
       <div className={`flex flex-col flex-1 min-w-0 transition-all duration-300 ${
-        isSidebarOpen ? 'ml-80' : 'ml-0'
+        isSidebarOpen ? 'lg:ml-80' : 'ml-0'
       }`}>
         {/* Top Bar */}
         <TopBar 
@@ -1089,12 +1310,12 @@ export default function HomePage() {
           isSidebarOpen={isSidebarOpen}
         />
         
-        {/* Content Container - Remove extra margins and center properly */}
-        <div className="flex flex-col flex-1 items-center w-full px-4 py-6">
-          <div className="w-full max-w-4xl">
+        {/* Content Container - 优化横向布局和自适应设计 */}
+        <div className="flex flex-col flex-1 items-center w-full px-3 sm:px-4 lg:px-6 xl:px-8 py-4 sm:py-6">
+          <div className="w-full max-w-3xl sm:max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl">
             {/* Model Selector and Settings */}
-            <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 p-6 mb-6 shadow-xl">
-              <div className="flex flex-col gap-4">
+            <div className="bg-slate-900/50 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-slate-700/50 p-4 sm:p-6 mb-4 sm:mb-6 shadow-xl">
+              <div className="flex flex-col gap-3 sm:gap-4">
                 <ModelSelector 
                   value={model}
                   onChange={(newModel) => { 
@@ -1116,19 +1337,21 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Message List Area */}
-            <div className={`flex flex-col flex-1 bg-slate-900/30 backdrop-blur-sm rounded-2xl border border-slate-700/50 shadow-2xl overflow-hidden mb-6 ${
-              currentSession?.messages.length === 0 ? 'min-h-[60vh]' : 'min-h-[55vh] max-h-[70vh]'
+            {/* Message List Area - 自适应高度和宽度 */}
+            <div className={`flex flex-col flex-1 bg-slate-900/30 backdrop-blur-sm rounded-xl sm:rounded-2xl border border-slate-700/50 shadow-2xl overflow-hidden mb-4 sm:mb-6 ${
+              currentSession?.messages.length === 0 
+                ? 'min-h-[50vh] sm:min-h-[55vh] lg:min-h-[60vh]' 
+                : 'min-h-[45vh] sm:min-h-[50vh] lg:min-h-[55vh] max-h-[60vh] sm:max-h-[65vh] lg:max-h-[70vh]'
             }`}>
               {currentSession?.messages.length === 0 && !isLoading && (
-                <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                  <div className="w-24 h-24 mb-6 rounded-full bg-gradient-to-br from-blue-600/20 to-purple-600/20 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12">
+                <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4 sm:p-8">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 mb-4 sm:mb-6 rounded-full bg-gradient-to-br from-blue-600/20 to-purple-600/20 flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-3.86 8.25-8.625 8.25S3.75 16.556 3.75 12s3.86-8.25 8.625-8.25S21 7.444 21 12z" />
                     </svg>
                   </div>
-                  <h2 className="text-2xl font-semibold text-slate-200 mb-2">How can I help you today?</h2>
-                  <p className="text-slate-400">Start a conversation with your AI assistant</p>
+                  <h2 className="text-xl sm:text-2xl lg:text-3xl font-semibold text-slate-200 mb-2 text-center">How can I help you today?</h2>
+                  <p className="text-sm sm:text-base text-slate-400 text-center">Start a conversation with your AI assistant</p>
                 </div>
               )}
               {currentSession && (

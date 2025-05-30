@@ -131,8 +131,8 @@ export default function Sidebar({
   };
 
   return (
-    <div className={`fixed left-0 top-0 h-full bg-slate-900/95 backdrop-blur-sm border-r border-slate-700/50 transition-all duration-300 z-40 ${
-      isOpen ? 'w-80 translate-x-0' : 'w-80 -translate-x-full'
+    <div className={`fixed left-0 top-0 h-full bg-slate-900/95 backdrop-blur-sm border-r border-slate-700/50 transition-all duration-300 z-50 ${
+      isOpen ? 'w-72 sm:w-80 translate-x-0' : 'w-72 sm:w-80 -translate-x-full'
     }`}>
       <div className="flex flex-col h-full">
         {/* Header */}

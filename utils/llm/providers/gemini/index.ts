@@ -354,15 +354,28 @@ export class GeminiProvider extends BaseLLMProvider {
               // 继续处理其他内容，不因图像错误而失败
             }
           } else if (part.fileData) {
-            // 处理Gemini文件数据格式
+            // 处理Gemini文件数据格式 - 使用正确的API格式
             try {
               content.parts.push({
-                fileData: {
-                  mimeType: part.fileData.mimeType,
-                  fileUri: part.fileData.fileUri
+                file_data: {
+                  mime_type: part.fileData.mimeType,
+                  file_uri: part.fileData.fileUri
                 }
               });
               this.debugLog('File Data', `Added file: ${part.fileData.fileUri}`);
+            } catch (error) {
+              this.debugLog('File Error', `Failed to process file: ${error.message}`);
+            }
+          } else if (part.file_data) {
+            // 处理已经是正确格式的文件数据
+            try {
+              content.parts.push({
+                file_data: {
+                  mime_type: part.file_data.mime_type || part.file_data.mimeType,
+                  file_uri: part.file_data.file_uri || part.file_data.fileUri
+                }
+              });
+              this.debugLog('File Data', `Added file: ${part.file_data.file_uri || part.file_data.fileUri}`);
             } catch (error) {
               this.debugLog('File Error', `Failed to process file: ${error.message}`);
             }
@@ -409,7 +422,7 @@ export class GeminiProvider extends BaseLLMProvider {
     // 调试日志：显示最终构建的contents
     this.debugLog('Built Contents', `Total contents: ${contents.length}`);
     contents.forEach((content, index) => {
-      const fileRefs = content.parts?.filter((part: any) => part.fileData) || [];
+      const fileRefs = content.parts?.filter((part: any) => part.file_data) || [];
       if (fileRefs.length > 0) {
         this.debugLog('Content Debug', `Content ${index} contains ${fileRefs.length} file(s): ${JSON.stringify(fileRefs)}`);
       }

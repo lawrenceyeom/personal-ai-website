@@ -6,6 +6,7 @@
 
 // Common interface definitions for the AI chat application
 import { LLMRequest } from '../utils/llm';
+import { UploadedFile } from '../components/ChatInput';
 
 // Message interface for chat messages
 export interface Message {
@@ -19,6 +20,7 @@ export interface Message {
   tool_call_id?: string;
   name?: string;
   timestamp?: number;
+  files?: UploadedFile[]; // 上传的文件信息
 }
 
 // Session interface for chat history

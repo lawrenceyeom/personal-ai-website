@@ -328,7 +328,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       if (Array.isArray(processedContent)) {
         const fileRefs = processedContent.filter(part => part.type === 'file');
         if (fileRefs.length > 0) {
-          this.debugLog('File References', `Found ${fileRefs.length} file references in message:`, fileRefs);
+          this.debugLog('File References', `Found ${fileRefs.length} file references in message: ${JSON.stringify(fileRefs)}`);
         }
       }
 
@@ -349,7 +349,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       if (Array.isArray(msg.content)) {
         const fileCount = msg.content.filter(part => part.type === 'file').length;
         if (fileCount > 0) {
-          this.debugLog('Message Debug', `Message ${index} contains ${fileCount} file(s):`, msg.content);
+          this.debugLog('Message Debug', `Message ${index} contains ${fileCount} file(s): ${JSON.stringify(msg.content)}`);
         }
       }
     });

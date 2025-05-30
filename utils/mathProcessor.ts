@@ -7,9 +7,9 @@
  * @returns 处理后的内容
  */
 export function preprocessMath(content: string): string {
-  if (!content) return content;
+  if (!content || typeof content !== 'string') return content;
 
-  let processed = content;
+  let processed = String(content); // 确保 processed 是字符串类型
   
   // 防止重复处理：如果内容已经包含大量$符号，可能已经被处理过
   const dollarCount = (processed.match(/\$/g) || []).length;
@@ -86,7 +86,9 @@ export function preprocessMath(content: string): string {
  * @returns 是否包含数学公式
  */
 export function containsMath(content: string): boolean {
-  if (!content) return false;
+  if (!content || typeof content !== 'string') return false;
+  
+  const textContent = String(content); // 确保是字符串类型
   
   // 检查是否包含常见的数学公式标记
   const mathPatterns = [
@@ -98,7 +100,7 @@ export function containsMath(content: string): boolean {
     /\[\s*[^[\]]*[=+\-*/^_{}\\][^[\]]*\s*\]/,  // 方括号包围的公式
   ];
   
-  return mathPatterns.some(pattern => pattern.test(content));
+  return mathPatterns.some(pattern => pattern.test(textContent));
 }
 
 /**
@@ -107,36 +109,37 @@ export function containsMath(content: string): boolean {
  * @returns 数学公式数组
  */
 export function extractMathFormulas(content: string): string[] {
-  if (!content) return [];
+  if (!content || typeof content !== 'string') return [];
   
+  const textContent = String(content); // 确保是字符串类型
   const formulas: string[] = [];
   
   // 提取行内公式
-  const inlineMatches = content.match(/\$[^$]+\$/g);
+  const inlineMatches = textContent.match(/\$[^$]+\$/g);
   if (inlineMatches) {
     formulas.push(...inlineMatches);
   }
   
   // 提取块级公式
-  const blockMatches = content.match(/\$\$[^$]+\$\$/g);
+  const blockMatches = textContent.match(/\$\$[^$]+\$\$/g);
   if (blockMatches) {
     formulas.push(...blockMatches);
   }
   
   // 提取LaTeX显示公式
-  const latexDisplayMatches = content.match(/\\\[[^\]]+\\\]/g);
+  const latexDisplayMatches = textContent.match(/\\\[[^\]]+\\\]/g);
   if (latexDisplayMatches) {
     formulas.push(...latexDisplayMatches);
   }
   
   // 提取LaTeX行内公式
-  const latexInlineMatches = content.match(/\\\([^)]+\\\)/g);
+  const latexInlineMatches = textContent.match(/\\\([^)]+\\\)/g);
   if (latexInlineMatches) {
     formulas.push(...latexInlineMatches);
   }
   
   // 提取方括号公式
-  const bracketMatches = content.match(/\[\s*[^[\]]*[=+\-*/^_{}\\][^[\]]*\s*\]/g);
+  const bracketMatches = textContent.match(/\[\s*[^[\]]*[=+\-*/^_{}\\][^[\]]*\s*\]/g);
   if (bracketMatches) {
     formulas.push(...bracketMatches);
   }

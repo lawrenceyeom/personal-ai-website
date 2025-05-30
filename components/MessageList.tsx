@@ -1,15 +1,16 @@
 // MessageList.tsx
 // 消息列表组件：深色卡片，用户/助手分色，头像渐变边框，字体更大，代码块深色
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import rehypeHighlight from 'rehype-highlight';
-import rehypeKatex from 'rehype-katex';
-import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import rehypeHighlight from 'rehype-highlight';
+import 'katex/dist/katex.min.css';
+import 'highlight.js/styles/github-dark.css';
 import Clipboard from 'clipboard';
-import { useEffect, useRef } from 'react';
 import { Message } from '../interfaces';
-import { LLMRequest } from '../utils/llm';
+import { getModelMapping } from '../utils/llm';
 import { preprocessMath } from '../utils/mathProcessor';
 
 interface MessageListProps {

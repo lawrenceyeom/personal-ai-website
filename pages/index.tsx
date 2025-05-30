@@ -1,7 +1,6 @@
 // pages/index.tsx
 // 主页：AI多模型对话主界面，包含模型切换、历史会话管理、流式对话、消息渲染等核心功能。
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import Head from 'next/head';
 import Sidebar from '../components/Sidebar';
 import TopBar from '../components/TopBar';
 import MessageList from '../components/MessageList';
@@ -10,8 +9,6 @@ import ModelSelector from '../components/ModelSelector';
 import AdvancedSettings from '../components/AdvancedSettings';
 import { LLMRequest, getModelMapping } from '../utils/llm';
 import { Message, ChatSession } from '../interfaces';
-import { processDocument, analyzeFileSupport, ProcessingResult, ProcessingStatus } from '../utils/fileProcessing';
-import { isReasoningModel } from '../utils/llm';
 
 // 使用新的getModelMapping函数获取模型映射
 const MODEL_MAPPING = getModelMapping();
@@ -115,6 +112,9 @@ export default function HomePage() {
   // 只有配置了API key的提供商才会在UI中启用
   const [disabledProviders, setDisabledProviders] = useState<string[]>([]);
   
+  // 添加状态跟踪内存警告，避免死循环
+  const [hasShownMemoryWarning, setHasShownMemoryWarning] = useState(false);
+  
   // Ref for the abort controller to cancel API requests
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -143,8 +143,17 @@ export default function HomePage() {
         
         setDisabledProviders(newDisabled);
 
-        // 检查localStorage使用情况
+        // 检查localStorage使用情况（添加防死循环逻辑）
         try {
+          // 检查是否在最近5分钟内已经显示过警告
+          const lastWarningTime = localStorage.getItem('last_memory_warning');
+          const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+          
+          if (lastWarningTime && parseInt(lastWarningTime) > fiveMinutesAgo) {
+            console.log('⏰ 内存警告已在最近5分钟内显示过，跳过检测');
+            return;
+          }
+          
           const sessionsData = localStorage.getItem('chat_sessions');
           if (sessionsData) {
             const sizeInBytes = new Blob([sessionsData]).size;
@@ -160,8 +169,10 @@ export default function HomePage() {
             if (usagePercentage > 80) {
               console.warn('⚠️ LocalStorage usage high, consider clearing old sessions');
               
-              // 当使用超过90%时显示用户提示
-              if (usagePercentage > 90) {
+              // 当使用超过90%时显示用户提示（添加防重复逻辑）
+              if (usagePercentage > 90 && !hasShownMemoryWarning) {
+                setHasShownMemoryWarning(true);
+                
                 setTimeout(() => {
                   const shouldClean = confirm(
                     `存储空间使用率已达 ${usagePercentage.toFixed(1)}%\n\n` +
@@ -170,10 +181,25 @@ export default function HomePage() {
                   );
                   
                   if (shouldClean) {
+                    // 记录警告时间，防止重新加载后再次显示
+                    localStorage.setItem('last_memory_warning', Date.now().toString());
+                    
                     const currentSessions = JSON.parse(localStorage.getItem('chat_sessions') || '[]');
                     const cleanedSessions = currentSessions.filter((s: ChatSession) => !s.archived);
                     localStorage.setItem('chat_sessions', JSON.stringify(cleanedSessions));
+                    
+                    // 显示清理结果并刷新页面
+                    const cleanedCount = currentSessions.length - cleanedSessions.length;
+                    if (cleanedCount > 0) {
+                      alert(`✅ 已清理 ${cleanedCount} 个归档会话，释放存储空间。`);
+                    } else {
+                      alert('💡 没有找到归档会话可清理。建议手动删除一些不需要的会话。');
+                    }
+                    
                     location.reload(); // 刷新页面以加载清理后的数据
+                  } else {
+                    // 用户点击取消，记录警告时间避免频繁弹窗
+                    localStorage.setItem('last_memory_warning', Date.now().toString());
                   }
                 }, 1000);
               }
@@ -189,7 +215,7 @@ export default function HomePage() {
         setDisabledProviders(['openai', 'anthropic', 'google', 'xai']);
       }
     }
-  }, []);
+  }, [hasShownMemoryWarning]);
 
   // Load saved sessions on initial load
   useEffect(() => {
@@ -217,19 +243,6 @@ export default function HomePage() {
   // Current active session
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
-  // Update messages in the current session
-  const updateSessionMessages = (messages: Message[]) => {
-    if (currentSessionId) {
-      setSessions(prevSessions =>
-        prevSessions.map(s =>
-          s.id === currentSessionId
-            ? { ...s, messages, lastUpdated: Date.now() }
-            : s
-        )
-      );
-    }
-  };
-  
   // Add a new message to the current session
   const addMessageToCurrentSession = (message: Message) => {
     if (currentSessionId) {
@@ -517,7 +530,7 @@ Requirements:
     
     // 添加API密钥
     const apiKey = getApiKeyForProvider(modelInfo.provider);
-    let updatedReq = { ...req };
+    const updatedReq = { ...req };
     if (apiKey) {
       updatedReq.apiKey = apiKey;
     }
@@ -531,7 +544,7 @@ Requirements:
 
   // More substantially update the handleSend function to better handle thinking state
   const handleSend = async () => {
-    if (!input.trim() && !uploadedImage) return;
+    if (!input.trim() && !uploadedImage && uploadedFiles.length === 0) return; // 确保在没有输入和文件时也不发送
     if (!currentSessionId || !currentSession) {
       console.error("No current session to send message to.");
       return;
@@ -539,26 +552,16 @@ Requirements:
 
     setIsLoading(true);
     
-    // Create and add user message
-    const userMessage: Message = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content: input,
-      ...(uploadedImage && { imageUrl: uploadedImage }),
-    };
-
-    // 处理上传的文件和图片
+    // 1. 首先构建完整消息内容 (messageContent)，可能包含文本、图像和文件引用
     let messageContent: string | any = input;
-    
-    // 添加文件内容到消息中
+    let additionalContent = ''; // 用于文本模式下的文件信息追加
+
     if (uploadedFiles.length > 0) {
-      let additionalContent = '';
       const imageFiles = uploadedFiles.filter(f => f.type.startsWith('image/'));
       const textFiles = uploadedFiles.filter(f => f.content && !f.fileId && !f.fileUri);
       const nativeDocFiles = uploadedFiles.filter(f => f.fileId || f.fileUri);
       const otherFiles = uploadedFiles.filter(f => !f.type.startsWith('image/') && !f.content && !f.fileId && !f.fileUri);
       
-      // 处理文本文件
       if (textFiles.length > 0) {
         additionalContent += '\n\n--- 上传的文件内容 ---\n';
         textFiles.forEach(file => {
@@ -566,168 +569,127 @@ Requirements:
         });
       }
       
-      // 处理原生文档文件（已上传到API的文件）
       if (nativeDocFiles.length > 0) {
         const modelInfo = MODEL_MAPPING[model];
         if (modelInfo?.supports?.documents) {
-          // 对于支持原生文档处理的模型，需要根据不同提供商处理文件引用
-          if (modelInfo.provider === 'google') {
-            // Gemini需要使用fileData格式，而不是在文本中引用
+          if (modelInfo.provider === 'google' || modelInfo.provider === 'gemini') {
             const fileDataParts = nativeDocFiles.filter(f => f.fileUri).map(file => ({
-              fileData: {
-                mimeType: file.type || 'application/pdf',
-                fileUri: file.fileUri
-              }
+              file_data: { mime_type: file.type || 'application/pdf', file_uri: file.fileUri }
             }));
-            
-            // 构建多模态消息内容
             if (fileDataParts.length > 0) {
-              messageContent = [
-                { type: 'text', text: input },
-                ...fileDataParts
-              ];
-              // 调试日志：检查Gemini文件引用
-              console.log('🔍 Gemini多模态消息内容构建成功:', {
-                partsCount: fileDataParts.length,
-                fileDataParts,
-                messageContent
-              });
+              messageContent = [{ type: 'text', text: input }, ...fileDataParts];
+              console.log('🔍 Gemini多模态消息内容构建成功:', { partsCount: fileDataParts.length, fileDataParts, messageContent });
             } else {
-              // 如果没有有效的fileUri，仍然使用文本方式
-              additionalContent += '\n\n--- 已上传文档 ---\n';
-              nativeDocFiles.forEach(file => {
-                if (file.fileUri) {
-                  additionalContent += `[Gemini文件: ${file.name}, URI: ${file.fileUri}]\n`;
-                }
-              });
-              messageContent = input + additionalContent;
+              nativeDocFiles.forEach(file => { if (file.fileUri) additionalContent += `[Gemini文件: ${file.name}, URI: ${file.fileUri}]\n`; });
             }
           } else if (modelInfo.provider === 'openai') {
-            // OpenAI使用file格式，根据官方文档
             const fileDataParts = nativeDocFiles.filter(f => f.fileId).map(file => ({
-              type: 'file',
-              file: {
-                file_id: file.fileId
-              }
+              type: 'file', file: { file_id: file.fileId }
             }));
-            
-            // 构建多模态消息内容
             if (fileDataParts.length > 0) {
-              messageContent = [
-                { type: 'text', text: input },
-                ...fileDataParts
-              ];
-              // 调试日志：检查Gemini文件引用
-              console.log('🔍 Gemini多模态消息内容构建成功:', {
-                partsCount: fileDataParts.length,
-                fileDataParts,
-                messageContent
-              });
+              messageContent = [{ type: 'text', text: input }, ...fileDataParts];
+              console.log('🔍 OpenAI多模态消息内容构建成功:', { partsCount: fileDataParts.length, fileDataParts, messageContent });
             } else {
-              // 如果没有有效的fileId，仍然使用文本方式
-              additionalContent += '\n\n--- 已上传文档 ---\n';
-              nativeDocFiles.forEach(file => {
-                if (file.fileId) {
-                  additionalContent += `[OpenAI文件: ${file.name}, ID: ${file.fileId}]\n`;
-                }
-              });
-              messageContent = input + additionalContent;
+              nativeDocFiles.forEach(file => { if (file.fileId) additionalContent += `[OpenAI文件: ${file.name}, ID: ${file.fileId}]\n`; });
             }
           } else {
-            // 其他提供商的处理
             additionalContent += '\n\n--- 已上传文档 ---\n';
             nativeDocFiles.forEach(file => {
-              if (file.fileId) {
-                additionalContent += `[${modelInfo.provider}文件: ${file.name}, ID: ${file.fileId}]\n`;
-              } else if (file.fileUri) {
-                additionalContent += `[${modelInfo.provider}文件: ${file.name}, URI: ${file.fileUri}]\n`;
-              }
+              if (file.fileId) additionalContent += `[${modelInfo.provider}文件: ${file.name}, ID: ${file.fileId}]\n`;
+              else if (file.fileUri) additionalContent += `[${modelInfo.provider}文件: ${file.name}, URI: ${file.fileUri}]\n`;
             });
-            messageContent = input + additionalContent;
           }
         } else {
-          // 如果模型不支持，显示警告
           additionalContent += '\n\n--- 文档上传警告 ---\n';
-          nativeDocFiles.forEach(file => {
-            additionalContent += `[警告: ${file.name} 已上传但当前模型不支持原生文档处理]\n`;
-          });
-          messageContent = input + additionalContent;
+          nativeDocFiles.forEach(file => { additionalContent += `[警告: ${file.name} 已上传但当前模型不支持原生文档处理]\n`; });
         }
       }
       
-      // 处理其他文件
       if (otherFiles.length > 0) {
         additionalContent += '\n\n--- 其他上传文件 ---\n';
-        otherFiles.forEach(file => {
-          additionalContent += `[文件: ${file.name}, 类型: ${file.type}, 大小: ${(file.size / 1024).toFixed(2)}KB]\n`;
-        });
+        otherFiles.forEach(file => { additionalContent += `[文件: ${file.name}, 类型: ${file.type}, 大小: ${(file.size / 1024).toFixed(2)}KB]\n`; });
       }
       
-      // 处理图片
       if (imageFiles.length > 0) {
         const modelInfo = MODEL_MAPPING[model];
         if (modelInfo?.supports?.vision) {
-          // 对于支持视觉的模型，使用多模态格式
-          const contentParts: any[] = [{ type: 'text', text: input + additionalContent }];
-          imageFiles.forEach(file => {
-            if (file.url) {
-              contentParts.push({ type: 'image_url', image_url: { url: file.url } });
-            }
-          });
+          const textPartForImage = (typeof messageContent === 'string' && messageContent !== input) ? messageContent : input + additionalContent;
+          const contentParts: any[] = [{ type: 'text', text: textPartForImage }];
+          imageFiles.forEach(file => { if (file.url) contentParts.push({ type: 'image_url', image_url: { url: file.url } }); });
           messageContent = contentParts;
         } else {
-          // 对于不支持视觉的模型，添加提示信息
           additionalContent += '\n\n[注意：当前模型不支持图像理解，已上传图片但无法分析]';
-          messageContent = input + additionalContent;
         }
-      } else {
-        messageContent = input + additionalContent;
       }
-    } else if (uploadedImage) {
-      // 向后兼容旧的图片上传方式
+      
+      // 如果messageContent仍然是初始的input，并且有additionalContent，则合并它们
+      if (typeof messageContent === 'string' && messageContent === input && additionalContent) {
+        messageContent = input + additionalContent;
+      } else if (Array.isArray(messageContent) && additionalContent) {
+        // 如果已经是数组（例如文件parts构建的），并且还有其他纯文本文件信息，需要确保文本部分包含additionalContent
+        const textPartIndex = messageContent.findIndex(part => part.type === 'text');
+        if (textPartIndex !== -1) {
+          messageContent[textPartIndex].text += additionalContent;
+        } else {
+          // Prepend additional text if no text part found (should not happen with current logic)
+           messageContent.unshift({ type: 'text', text: additionalContent.trim() });
+        }
+      }
+
+
+    } else if (uploadedImage) { // 向后兼容旧的uploadedImage逻辑
       const modelInfo = MODEL_MAPPING[model];
       if (modelInfo?.supports?.vision) {
-        messageContent = [
-          { type: 'text', text: input },
-          { type: 'image_url', image_url: { url: uploadedImage } }
-        ];
+        messageContent = [{ type: 'text', text: input }, { type: 'image_url', image_url: { url: uploadedImage } }];
       } else {
         messageContent = input + '\n\n[注意：当前模型不支持图像理解，图片已上传但无法分析]';
       }
     }
+    // At this point, messageContent is fully constructed.
+
+    // 2. 创建用户消息对象，使用显示友好的字符串内容
+    // 为UI显示创建字符串版本的内容
+    let displayContent = input;
+    if (additionalContent) {
+      displayContent = input + additionalContent;
+    }
     
-    addMessageToCurrentSession(userMessage);
+    const userMessageForSession: Message = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      content: displayContent, // 用于UI显示的字符串内容
+      // 保存文件信息用于重新生成时的引用
+      ...(uploadedFiles.length > 0 && { files: uploadedFiles }),
+      ...(uploadedImage && { imageUrl: uploadedImage })
+    };
+    
+    addMessageToCurrentSession(userMessageForSession);
     setInput('');
     setUploadedImage(null);
     setUploadedFiles([]);
 
-    // Create initial assistant message with thinking state
+    // 3. 创建助理消息占位符
     const assistantMessageId = `msg-${Date.now()}-assistant`;
     const assistantMessagePlaceholder: Message = {
       id: assistantMessageId,
       role: 'assistant',
       content: '',
-      thinking: '', // Initial empty thinking content
-      isThinking: true, // Indicate that thinking is in progress
+      thinking: '', 
+      isThinking: true, 
     };
-    
-    // Add the assistant message with initial thinking state
     addMessageToCurrentSession(assistantMessagePlaceholder);
 
     abortControllerRef.current = new AbortController();
     let accumulatedResponse = '';
-    let reasoningBuffer = ''; // Start with empty reasoning buffer
+    let reasoningBuffer = '';
 
     try {
-      // 构建最终的消息数组
-      const finalMessages = [
-        ...currentSession.messages.filter(m => m.id !== assistantMessageId)
-          .map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: messageContent }
-      ];
+      // 4. 构建发送到API的最终消息数组，使用复杂的消息内容（包含文件引用）
+      const apiMessages = currentSession.messages.map(m => ({ role: m.role, content: m.content }));
+      // 为API调用添加包含文件引用的用户消息
+      apiMessages.push({ role: 'user', content: messageContent });
       
-      // 调试日志：检查最终发送的消息
-      console.log('🔍 最终发送的消息数组:', finalMessages);
+      console.log('🔍 最终发送的消息数组:', apiMessages);
       console.log('🔍 用户消息内容类型:', typeof messageContent);
       console.log('🔍 用户消息内容:', messageContent);
       
@@ -740,7 +702,7 @@ Requirements:
         body: JSON.stringify(
           addApiKeyToRequest({
             model: currentSession.model || model,
-            messages: finalMessages,
+            messages: apiMessages, // 使用包含文件引用的消息数组
             stream: true,
             ...advancedSettings,
           } as LLMRequest)
@@ -1336,6 +1298,41 @@ Requirements:
     // Get the latest user message for regeneration
     const userMessage = contextMessages[contextMessages.length - 1];
 
+    // 重新构建包含文件引用的用户消息内容（如果原消息包含文件）
+    let regenerateMessageContent = userMessage.content;
+    if (userMessage.files && userMessage.files.length > 0) {
+      // 重新构建复杂的消息内容以包含文件引用
+      const files = userMessage.files;
+      const nativeDocFiles = files.filter(f => f.fileId || f.fileUri);
+      
+      if (nativeDocFiles.length > 0) {
+        const modelInfo = MODEL_MAPPING[model];
+        if (modelInfo?.supports?.documents) {
+          if (modelInfo.provider === 'google' || modelInfo.provider === 'gemini') {
+            const fileDataParts = nativeDocFiles.filter(f => f.fileUri).map(file => ({
+              file_data: { mime_type: file.type || 'application/pdf', file_uri: file.fileUri }
+            }));
+            if (fileDataParts.length > 0) {
+              // 从显示内容中提取原始文本（去除文件信息）
+              const textContent = userMessage.content.split('\n\n--- ')[0] || userMessage.content;
+              regenerateMessageContent = [{ type: 'text', text: textContent }, ...fileDataParts];
+              console.log('🔄 Regenerate: Gemini文件引用重建成功:', { partsCount: fileDataParts.length });
+            }
+          } else if (modelInfo.provider === 'openai') {
+            const fileDataParts = nativeDocFiles.filter(f => f.fileId).map(file => ({
+              type: 'file', file: { file_id: file.fileId }
+            }));
+            if (fileDataParts.length > 0) {
+              // 从显示内容中提取原始文本（去除文件信息）
+              const textContent = userMessage.content.split('\n\n--- ')[0] || userMessage.content;
+              regenerateMessageContent = [{ type: 'text', text: textContent }, ...fileDataParts];
+              console.log('🔄 Regenerate: OpenAI文件引用重建成功:', { partsCount: fileDataParts.length });
+            }
+          }
+        }
+      }
+    }
+
     // Determine which model to use
     const modelToUse = newModel || currentSession.model || model;
 
@@ -1345,6 +1342,13 @@ Requirements:
     let reasoningBuffer = '';
 
     try {
+      // 构建API消息，确保最后一条用户消息使用正确的内容格式
+      const apiContextMessages = contextMessages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
+      apiContextMessages.push({ role: 'user', content: regenerateMessageContent });
+      
+      console.log('🔄 Regenerate: 发送的消息数组:', apiContextMessages);
+      console.log('🔄 Regenerate: 用户消息内容:', regenerateMessageContent);
+      
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -1354,7 +1358,7 @@ Requirements:
         body: JSON.stringify(
           addApiKeyToRequest({
             model: modelToUse,
-            messages: contextMessages.map(m => ({ role: m.role, content: m.content })),
+            messages: apiContextMessages,
             stream: true,
             ...advancedSettings,
           } as LLMRequest)

@@ -441,7 +441,7 @@ export class OpenAIProvider extends BaseLLMProvider {
   /**
    * 处理多模态内容，包括文本、图像和文件
    */
-  private processMultimodalContent(content: any): any {
+  protected processMultimodalContent(content: any): any {
     if (typeof content === 'string') {
       return content;
     }

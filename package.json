@@ -9,7 +9,8 @@
     "@types/papaparse": "^5.3.16",
     "eslint": "8.57.1",
     "eslint-config-next": "15.3.3",
-    "postcss-nesting": "^12.1.5"
+    "postcss-nesting": "^12.1.5",
+    "ts-node": "^10.9.2"
   },
   "dependencies": {
     "@types/formidable": "^3.4.5",

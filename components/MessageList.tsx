@@ -9,7 +9,7 @@ import rehypeHighlight from 'rehype-highlight';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.css';
 import Clipboard from 'clipboard';
-import { Message } from '../interfaces';
+import { Message, SearchResult } from '../interfaces';
 import { getModelMapping } from '../utils/llm';
 import { preprocessMath } from '../utils/mathProcessor';
 
@@ -24,6 +24,7 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
   const [expandedThinking, setExpandedThinking] = useState<{[key: string]: boolean}>({});
   const [showModelSelector, setShowModelSelector] = useState<{[key: string]: boolean}>({});
   const [selectedModels, setSelectedModels] = useState<{[key: string]: string}>({});
+  const [expandedSearchResults, setExpandedSearchResults] = useState<{[key: string]: boolean}>({});
   
   // 挂载后为所有代码块添加一键复制功能
   useEffect(() => {
@@ -61,6 +62,14 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
     }));
   };
 
+  // 切换显示/隐藏搜索结果
+  const toggleSearchResults = (messageId: string) => {
+    setExpandedSearchResults(prev => ({
+      ...prev,
+      [messageId]: !prev[messageId]
+    }));
+  };
+
   // 重新生成回复
   const handleRegenerate = (messageId: string) => {
     if (onRegenerate) {
@@ -77,14 +86,95 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
     }));
   };
 
+  // 渲染搜索结果组件
+  const renderSearchResults = (searchResults: any, isExpanded: boolean) => {
+    if (!searchResults) return null;
+
+    if (!searchResults.success) {
+      return (
+        <div className="mt-2 p-3 bg-red-900/20 border border-red-700/50 rounded-lg">
+          <p className="text-red-400 text-sm">❌ {searchResults.error || '搜索失败'}</p>
+        </div>
+      );
+    }
+
+    if (!isExpanded) {
+      return (
+        <div className="mt-2 p-3 bg-blue-900/20 border border-blue-700/50 rounded-lg">
+          <p className="text-blue-400 text-sm">
+            ✅ 找到 {searchResults.results?.length || 0} 个搜索结果
+            {searchResults.summary && (
+              <span className="ml-2 text-gray-300">
+                - {searchResults.summary.length > 100 
+                    ? searchResults.summary.substring(0, 100) + '...' 
+                    : searchResults.summary}
+              </span>
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-2 p-4 bg-blue-900/20 border border-blue-700/50 rounded-lg">
+        <div className="mb-3">
+          <h4 className="text-blue-400 font-semibold text-sm mb-2">
+            🔍 搜索查询: {searchResults.query}
+          </h4>
+          {searchResults.summary && (
+            <div className="mb-3 p-2 bg-slate-800/50 rounded border border-slate-600">
+              <p className="text-gray-300 text-sm">
+                <strong>摘要:</strong> {searchResults.summary}
+              </p>
+            </div>
+          )}
+        </div>
+        
+        {searchResults.results && searchResults.results.length > 0 && (
+          <div className="space-y-2">
+            <h5 className="text-blue-300 font-medium text-sm">搜索结果 ({searchResults.results.length}):</h5>
+            {searchResults.results.map((result: SearchResult, index: number) => (
+              <div key={index} className="p-2 bg-slate-800/30 rounded border border-slate-600/50">
+                <h6 className="text-white font-medium text-sm mb-1">
+                  <a 
+                    href={result.url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="hover:text-blue-400 transition-colors"
+                  >
+                    {result.title}
+                  </a>
+                </h6>
+                <p className="text-gray-400 text-xs mb-1">{result.snippet}</p>
+                <p className="text-blue-500 text-xs truncate">{result.url}</p>
+                {result.source && (
+                  <p className="text-gray-500 text-xs">来源: {result.source}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {searchResults.searchTime && (
+          <p className="text-gray-500 text-xs mt-2">
+            搜索耗时: {searchResults.searchTime}ms
+          </p>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto flex-1">
       {messages.map(msg => {
         const isUser = msg.role === 'user';
-        const hasThinking = !isUser && (msg.thinking || msg.isThinking);
+        const isSearch = msg.role === 'search';
+        const hasThinking = !isUser && !isSearch && (msg.thinking || msg.isThinking);
         const isThinkingExpanded = expandedThinking[msg.id] || false;
         const showingModelSelector = showModelSelector[msg.id] || false;
         const selectedModel = selectedModels[msg.id] || currentModel;
+        const hasSearchResults = isSearch && msg.searchResults;
+        const isSearchResultsExpanded = expandedSearchResults[msg.id] || false;
         
         return (
           <div key={msg.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} w-full`}>
@@ -92,8 +182,11 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
               {/* Avatar */}
               <div className="flex-shrink-0">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2563eb] to-[#0f172a] p-1 shadow">
-                  <div className={`w-full h-full rounded-full ${!isUser && msg.isThinking ? 'animate-pulse' : ''} ${isUser ? 'bg-[#233056]' : 'bg-[#1e2333]'} flex items-center justify-center text-[#7dd3fc] font-bold text-lg`}>
-                    {isUser ? '🧑' : '🤖'}
+                  <div className={`w-full h-full rounded-full ${(!isUser && !isSearch && msg.isThinking) || (isSearch && msg.isSearching) ? 'animate-pulse' : ''} ${
+                    isUser ? 'bg-[#233056]' : 
+                    isSearch ? 'bg-[#1a4d4a]' : 'bg-[#1e2333]'
+                  } flex items-center justify-center text-[#7dd3fc] font-bold text-lg`}>
+                    {isUser ? '🧑' : isSearch ? '🔍' : '🤖'}
                   </div>
                 </div>
               </div>
@@ -115,6 +208,27 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                       )}
                       {isThinkingExpanded ? '隐藏思路' : '显示思路'}
                       <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ml-1 transition-transform ${isThinkingExpanded ? 'rotate-180' : 'rotate-0'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </span>
+                  </button>
+                )}
+
+                {/* 搜索结果按钮 */}
+                {hasSearchResults && (
+                  <button 
+                    onClick={() => toggleSearchResults(msg.id)} 
+                    className="flex items-center gap-1 text-sm text-[#7dd3fc] hover:text-white transition-colors self-start mb-1 px-3 py-1 rounded-lg bg-[#1c243b] border border-[#233056]"
+                  >
+                    <span className="inline-flex items-center">
+                      {msg.isSearching && (
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-[#7dd3fc]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      )}
+                      {isSearchResultsExpanded ? '隐藏搜索结果' : '显示搜索结果'}
+                      <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ml-1 transition-transform ${isSearchResultsExpanded ? 'rotate-180' : 'rotate-0'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
                     </span>
@@ -203,7 +317,16 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                 )}
                 
                 {/* 正文内容 */}
-                <div className={`card relative px-7 py-5 flex flex-col gap-2 border-2 ${isUser ? 'border-[#2563eb] bg-[#233056]/90' : 'border-[#7dd3fc] bg-[#1e2333]/90'} ${isUser ? 'rounded-br-3xl' : isThinkingExpanded ? 'rounded-b-xl' : 'rounded-bl-3xl'} text-lg`}>
+                <div className={`card relative px-7 py-5 flex flex-col gap-2 border-2 ${
+                  isUser ? 'border-[#2563eb] bg-[#233056]/90' : 
+                  isSearch ? 'border-[#059669] bg-[#1a4d4a]/90' :
+                  'border-[#7dd3fc] bg-[#1e2333]/90'
+                } ${
+                  isUser ? 'rounded-br-3xl' : 
+                  isThinkingExpanded ? 'rounded-b-xl' : 
+                  isSearch ? 'rounded-bl-3xl' :
+                  'rounded-bl-3xl'
+                } text-lg`}>
                   {/* 图片 */}
                   {msg.imageUrl && <img src={msg.imageUrl} alt="用户上传" className="mb-2 max-w-xs rounded-lg border border-[#233056]" />}
                   
@@ -216,100 +339,128 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                     />
                   )}
 
-                  {/* Markdown内容，代码块带复制 */}
-                  <ReactMarkdown
-                    remarkPlugins={[remarkMath, remarkGfm]}
-                    rehypePlugins={[rehypeHighlight, rehypeKatex]}
-                    components={{
-                      // 表格组件
-                      table: ({ node, ...props }) => (
-                        <div className="overflow-x-auto my-4">
-                          <table {...props} className="min-w-full border-collapse border border-[#233056] bg-[#101624] rounded-lg" />
-                        </div>
-                      ),
-                      thead: ({ node, ...props }) => (
-                        <thead {...props} className="bg-[#233056]" />
-                      ),
-                      tbody: ({ node, ...props }) => (
-                        <tbody {...props} />
-                      ),
-                      tr: ({ node, ...props }) => (
-                        <tr {...props} className="border-b border-[#233056] hover:bg-[#1a1f35]/50" />
-                      ),
-                      th: ({ node, ...props }) => (
-                        <th {...props} className="border border-[#233056] px-4 py-2 text-left font-semibold text-[#7dd3fc] bg-[#1e2333]" />
-                      ),
-                      td: ({ node, ...props }) => (
-                        <td {...props} className="border border-[#233056] px-4 py-2 text-white" />
-                      ),
-                                              pre: ({ node, children, ...props }) => {
-                        const codeChild = React.Children.toArray(children).find(
-                          (child) => React.isValidElement(child) && child.type === 'code'
-                        ) as React.ReactElement<{ className?: string }> | undefined;
-                        const codeClassName = codeChild?.props?.className || '';
-                        const isCodeBlock = /language-(\w+)/.exec(codeClassName);
-                        
-                        // 检查是否是多行代码块（即使没有语言标识）
-                        const codeContent = (codeChild?.props as any)?.children;
-                        const isMultiLineCode = typeof codeContent === 'string' && 
-                          (codeContent.includes('\n') || codeContent.length > 50);
+                  {/* 搜索消息的特殊显示 */}
+                  {isSearch ? (
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2 mb-2">
+                        {msg.isSearching ? (
+                          <svg className="animate-spin h-5 w-5 text-[#059669]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        ) : (
+                          <svg className="h-5 w-5 text-[#059669]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                        <span className="text-white font-medium">{msg.content}</span>
+                      </div>
+                      
+                      {msg.searchQuery && (
+                        <p className="text-sm text-gray-400 mb-2">
+                          查询: "{msg.searchQuery}"
+                        </p>
+                      )}
 
-                        if (isCodeBlock || isMultiLineCode) {
-                          return (
-                            <div className="relative group/code-block my-2 text-base">
-                              <button
-                                className="copy-btn absolute top-2 right-2 text-xs bg-[#233056] text-[#7dd3fc] px-2 py-1 rounded shadow hover:bg-[#2563eb] opacity-0 group-hover/code-block:opacity-100 transition border border-[#2563eb] z-10"
-                                title="复制代码"
-                              >复制</button>
-                              <pre {...props} className={(props.className || '') + " bg-[#101624] rounded-lg border border-[#233056] p-3 pr-16 overflow-x-auto relative"}>
+                      {/* 搜索结果展示 */}
+                      {renderSearchResults(msg.searchResults, isSearchResultsExpanded)}
+                    </div>
+                  ) : (
+                    /* 普通消息的Markdown内容，代码块带复制 */
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath, remarkGfm]}
+                      rehypePlugins={[rehypeHighlight, rehypeKatex]}
+                      components={{
+                        // 表格组件
+                        table: ({ node, ...props }) => (
+                          <div className="overflow-x-auto my-4">
+                            <table {...props} className="min-w-full border-collapse border border-[#233056] bg-[#101624] rounded-lg" />
+                          </div>
+                        ),
+                        thead: ({ node, ...props }) => (
+                          <thead {...props} className="bg-[#233056]" />
+                        ),
+                        tbody: ({ node, ...props }) => (
+                          <tbody {...props} />
+                        ),
+                        tr: ({ node, ...props }) => (
+                          <tr {...props} className="border-b border-[#233056] hover:bg-[#1a1f35]/50" />
+                        ),
+                        th: ({ node, ...props }) => (
+                          <th {...props} className="border border-[#233056] px-4 py-2 text-left font-semibold text-[#7dd3fc] bg-[#1e2333]" />
+                        ),
+                        td: ({ node, ...props }) => (
+                          <td {...props} className="border border-[#233056] px-4 py-2 text-white" />
+                        ),
+                        pre: ({ node, children, ...props }) => {
+                          const codeChild = React.Children.toArray(children).find(
+                            (child) => React.isValidElement(child) && child.type === 'code'
+                          ) as React.ReactElement<{ className?: string }> | undefined;
+                          const codeClassName = codeChild?.props?.className || '';
+                          const isCodeBlock = /language-(\w+)/.exec(codeClassName);
+                          
+                          // 检查是否是多行代码块（即使没有语言标识）
+                          const codeContent = (codeChild?.props as any)?.children;
+                          const isMultiLineCode = typeof codeContent === 'string' && 
+                            (codeContent.includes('\n') || codeContent.length > 50);
+
+                          if (isCodeBlock || isMultiLineCode) {
+                            return (
+                              <div className="relative group/code-block my-2 text-base">
+                                <button
+                                  className="copy-btn absolute top-2 right-2 text-xs bg-[#233056] text-[#7dd3fc] px-2 py-1 rounded shadow hover:bg-[#2563eb] opacity-0 group-hover/code-block:opacity-100 transition border border-[#2563eb] z-10"
+                                  title="复制代码"
+                                >复制</button>
+                                <pre {...props} className={(props.className || '') + " bg-[#101624] rounded-lg border border-[#233056] p-3 pr-16 overflow-x-auto relative"}>
+                                  {children}
+                                </pre>
+                              </div>
+                            );
+                          }
+                          return <pre {...props} className={(props.className || '') + " my-2 whitespace-pre-wrap text-white"}>{children}</pre>;
+                        },
+                        code: ({ node, inline, className, children, ...props }: any) => {
+                          const match = /language-(\w+)/.exec(className || '');
+                          if (inline) {
+                            return (
+                              <code {...props} className={(className || '') + ' px-1 py-0.5 rounded bg-[#233056] text-[#7dd3fc] text-sm'}>
                                 {children}
-                              </pre>
-                            </div>
-                          );
-                        }
-                        return <pre {...props} className={(props.className || '') + " my-2 whitespace-pre-wrap text-white"}>{children}</pre>;
-                      },
-                      code: ({ node, inline, className, children, ...props }: any) => {
-                        const match = /language-(\w+)/.exec(className || '');
-                        if (inline) {
-                          return (
-                            <code {...props} className={(className || '') + ' px-1 py-0.5 rounded bg-[#233056] text-[#7dd3fc] text-sm'}>
-                              {children}
-                            </code>
-                          );
-                        }
-                        if (match) {
-                          // Code block content (inside <pre> already handled by rehypeHighlight)
-                          return (
-                            <code {...props} className={(className || '') + ' text-[#7dd3fc]'}>
-                              {children}
-                            </code>
-                          );
-                        }
-                        // Fallback for other <code> usages, if any, or if it's not inline and not a language block (should be rare)
-                        return <code {...props} className={(className || '') + ' text-base text-white'}>{children}</code>;
-                      },
-                      // Ensure headings and paragraphs render with white text
-                      h1: ({node, ...props}) => <h1 className="text-2xl font-bold my-4 text-white" {...props} />,
-                      h2: ({node, ...props}) => <h2 className="text-xl font-semibold my-3 text-white" {...props} />,
-                      h3: ({node, ...props}) => <h3 className="text-lg font-semibold my-2 text-white" {...props} />,
-                      h4: ({node, ...props}) => <h4 className="text-base font-semibold my-2 text-white" {...props} />,
-                      h5: ({node, ...props}) => <h5 className="text-sm font-semibold my-2 text-white" {...props} />,
-                      h6: ({node, ...props}) => <h6 className="text-xs font-semibold my-2 text-white" {...props} />,
-                      p: ({node, ...props}) => <p className="my-2 text-base text-white" {...props} />,
-                      ul: ({node, ...props}) => <ul className="list-disc list-inside my-2 text-base text-white" {...props} />,
-                      ol: ({node, ...props}) => <ol className="list-decimal list-inside my-2 text-base text-white" {...props} />,
-                      li: ({node, ...props}) => <li className="my-1 text-white" {...props} />,
-                      strong: ({node, ...props}) => <strong className="font-bold text-white" {...props} />,
-                      em: ({node, ...props}) => <em className="italic text-white" {...props} />,
-                      blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-[#7dd3fc] pl-4 my-4 text-white italic" {...props} />,
-                    }}
-                  >
-                    {preprocessMath(msg.content)}
-                  </ReactMarkdown>
+                              </code>
+                            );
+                          }
+                          if (match) {
+                            // Code block content (inside <pre> already handled by rehypeHighlight)
+                            return (
+                              <code {...props} className={(className || '') + ' text-[#7dd3fc]'}>
+                                {children}
+                              </code>
+                            );
+                          }
+                          // Fallback for other <code> usages, if any, or if it's not inline and not a language block (should be rare)
+                          return <code {...props} className={(className || '') + ' text-base text-white'}>{children}</code>;
+                        },
+                        // Ensure headings and paragraphs render with white text
+                        h1: ({node, ...props}) => <h1 className="text-2xl font-bold my-4 text-white" {...props} />,
+                        h2: ({node, ...props}) => <h2 className="text-xl font-semibold my-3 text-white" {...props} />,
+                        h3: ({node, ...props}) => <h3 className="text-lg font-semibold my-2 text-white" {...props} />,
+                        h4: ({node, ...props}) => <h4 className="text-base font-semibold my-2 text-white" {...props} />,
+                        h5: ({node, ...props}) => <h5 className="text-sm font-semibold my-2 text-white" {...props} />,
+                        h6: ({node, ...props}) => <h6 className="text-xs font-semibold my-2 text-white" {...props} />,
+                        p: ({node, ...props}) => <p className="my-2 text-base text-white" {...props} />,
+                        ul: ({node, ...props}) => <ul className="list-disc list-inside my-2 text-base text-white" {...props} />,
+                        ol: ({node, ...props}) => <ol className="list-decimal list-inside my-2 text-base text-white" {...props} />,
+                        li: ({node, ...props}) => <li className="my-1 text-white" {...props} />,
+                        strong: ({node, ...props}) => <strong className="font-bold text-white" {...props} />,
+                        em: ({node, ...props}) => <em className="italic text-white" {...props} />,
+                        blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-[#7dd3fc] pl-4 my-4 text-white italic" {...props} />,
+                      }}
+                    >
+                      {preprocessMath(msg.content)}
+                    </ReactMarkdown>
+                  )}
 
                   {/* 重新生成和模型选择 - 仅对AI回复显示 */}
-                  {!isUser && onRegenerate && !msg.isThinking && (
+                  {!isUser && !isSearch && onRegenerate && !msg.isThinking && (
                     <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-[#233056]">
                       <button 
                         onClick={() => toggleModelSelector(msg.id)}
@@ -330,7 +481,7 @@ export default function MessageList({ messages, onRegenerate, currentModel }: Me
                   )}
 
                   {/* 模型选择下拉菜单 */}
-                  {!isUser && showingModelSelector[msg.id] && (
+                  {!isUser && !isSearch && showingModelSelector[msg.id] && (
                     <div className="flex flex-col mt-2 bg-[#1a1f35] rounded-md border border-[#233056] p-2">
                       <div className="text-xs text-gray-400 mb-2">选择模型重新生成回复:</div>
                       <div className="grid grid-cols-2 gap-2">

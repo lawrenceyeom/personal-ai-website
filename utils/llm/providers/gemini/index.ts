@@ -482,18 +482,41 @@ export class GeminiProvider extends BaseLLMProvider {
    * 转换工具格式为Gemini格式
    */
   private convertTools(tools: any[]): any[] {
-    return [{
-      functionDeclarations: tools.map(tool => {
-        if (tool.type === 'function') {
-          return {
-            name: tool.name || tool.function?.name,
-            description: tool.description || tool.function?.description,
-            parameters: tool.parameters || tool.function?.parameters
-          };
+    const geminiTools = [];
+
+    for (const tool of tools) {
+      if (tool.type === 'function') {
+        // 函数工具
+        if (!geminiTools.find(t => t.functionDeclarations)) {
+          geminiTools.push({ functionDeclarations: [] });
         }
-        return tool;
-      })
-    }];
+        const functionsIndex = geminiTools.findIndex(t => t.functionDeclarations);
+        
+        geminiTools[functionsIndex].functionDeclarations.push({
+          name: tool.name || tool.function?.name,
+          description: tool.description || tool.function?.description,
+          parameters: tool.parameters || tool.function?.parameters
+        });
+      } else if (tool.google_search || tool.googleSearch) {
+        // Google Search工具 - 使用Gemini 2.0的新格式
+        geminiTools.push({
+          google_search: {}  // Gemini 2.0的新格式，不再使用googleSearchRetrieval
+        });
+        this.debugLog('Google Search Tool', 'Added Google Search tool (Gemini 2.0 format)');
+      } else if (tool.code_execution || tool.codeExecution) {
+        // 代码执行工具
+        geminiTools.push({
+          codeExecution: {}
+        });
+        this.debugLog('Code Execution Tool', 'Added code execution tool');
+      } else {
+        // 其他工具格式，直接添加
+        geminiTools.push(tool);
+      }
+    }
+
+    this.debugLog('Converted Tools', `Tools converted: ${geminiTools.length} tools`);
+    return geminiTools;
   }
 
   /**

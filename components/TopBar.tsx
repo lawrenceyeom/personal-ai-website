@@ -1,7 +1,9 @@
 // TopBar.tsx
 // Enhanced professional top bar with user profile and quick actions
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { createPortal } from 'react-dom';
+import AnnouncementModal from './AnnouncementModal';
 
 interface TopBarProps {
   currentSessionName?: string;
@@ -21,6 +23,7 @@ export default function TopBar({
   isSidebarOpen 
 }: TopBarProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 });
   const profileButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -67,19 +70,19 @@ export default function TopBar({
         <p className="text-sm font-medium text-white">User</p>
         <p className="text-xs text-slate-400">user@example.com</p>
       </div>
-      <a href="#" className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
+      <Link href="#" className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
         Profile Settings
-      </a>
-      <a href="/settings" className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
+      </Link>
+      <Link href="/settings" className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
         API Keys
-      </a>
-      <a href="#" className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
+      </Link>
+      <Link href="#" className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
         Usage & Billing
-      </a>
+      </Link>
       <hr className="my-2 border-slate-700" />
-      <a href="#" className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
+      <Link href="#" className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
         Sign Out
-      </a>
+      </Link>
     </div>
   );
 
@@ -147,8 +150,21 @@ export default function TopBar({
           <span className="hidden sm:inline">New Chat</span>
         </button>
 
+        {/* Announcement Button */}
+        <button
+          onClick={() => setShowAnnouncementModal(true)}
+          className="p-1.5 sm:p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors relative"
+          title="功能介绍 & 网站公告"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {/* 小红点标识 - 表示有新功能 */}
+          <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+        </button>
+
         {/* Settings */}
-        <a
+        <Link
           href="/settings"
           className="p-1.5 sm:p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
           title="Settings"
@@ -157,7 +173,7 @@ export default function TopBar({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-        </a>
+        </Link>
 
         {/* Profile - 在小屏幕上隐藏 */}
         <div className="relative hidden sm:block">
@@ -181,6 +197,12 @@ export default function TopBar({
           )}
         </div>
       </div>
+
+      {/* Announcement Modal */}
+      <AnnouncementModal 
+        isOpen={showAnnouncementModal}
+        onClose={() => setShowAnnouncementModal(false)}
+      />
     </div>
   );
 } 

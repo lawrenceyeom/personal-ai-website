@@ -8,10 +8,29 @@
 import { LLMRequest } from '../utils/llm';
 import { UploadedFile } from '../components/ChatInput';
 
+// 搜索结果接口
+export interface SearchResult {
+  title: string;
+  snippet: string;
+  url: string;
+  source?: string;
+}
+
+// 搜索响应接口
+export interface SearchResponse {
+  success: boolean;
+  query: string;
+  results: SearchResult[];
+  summary?: string;
+  error?: string;
+  totalResults?: number;
+  searchTime?: number;
+}
+
 // Message interface for chat messages
 export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system' | 'tool';
+  role: 'user' | 'assistant' | 'system' | 'tool' | 'search';  // 添加 'search' 类型
   content: string | any;
   thinking?: string;  // AI思考过程内容
   isThinking?: boolean; // 是否正在思考中
@@ -21,6 +40,11 @@ export interface Message {
   name?: string;
   timestamp?: number;
   files?: UploadedFile[]; // 上传的文件信息
+  
+  // 搜索相关字段
+  isSearching?: boolean;  // 是否正在搜索中
+  searchResults?: SearchResponse;  // 搜索结果
+  searchQuery?: string;  // 搜索查询
 }
 
 // Session interface for chat history

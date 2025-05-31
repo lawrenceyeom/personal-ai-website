@@ -1,6 +1,7 @@
 // Sidebar.tsx
 // Enhanced professional sidebar with search, categorization, and modern design
 import React, { useState, useMemo } from 'react';
+import Link from 'next/link';
 import { ChatSession } from '../interfaces';
 
 interface SidebarProps {
@@ -338,7 +339,7 @@ export default function Sidebar({
           <div className="flex items-center gap-3 text-xs text-slate-500">
             <span>© 2025 Personal AI</span>
             <span>•</span>
-            <a href="/settings" className="hover:text-slate-300 transition-colors">Settings</a>
+            <Link href="/settings" className="hover:text-slate-300 transition-colors">Settings</Link>
             <span>•</span>
             <button className="hover:text-slate-300 transition-colors">Help</button>
           </div>

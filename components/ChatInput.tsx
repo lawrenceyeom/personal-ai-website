@@ -27,6 +27,8 @@ interface ChatInputProps {
   currentModel?: string;
   uploadedFiles?: UploadedFile[];
   onRemoveFile?: (fileId: string) => void;
+  onSearchToggle?: (enabled: boolean) => void;
+  isSearchEnabled?: boolean;
 }
 
 // 根据模型设置字符限制
@@ -72,7 +74,9 @@ export default function ChatInput({
   showCancel,
   currentModel,
   uploadedFiles = [],
-  onRemoveFile
+  onRemoveFile,
+  onSearchToggle,
+  isSearchEnabled
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -331,6 +335,27 @@ export default function ChatInput({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
               </button>
+
+              {/* Search toggle button */}
+              {onSearchToggle && (
+                <button
+                  onClick={() => onSearchToggle(!isSearchEnabled)}
+                  disabled={disabled}
+                  className={`relative p-2 sm:p-2.5 lg:p-3 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isSearchEnabled 
+                      ? 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 hover:text-blue-300' 
+                      : 'hover:bg-slate-700/50 text-slate-400 hover:text-white'
+                  }`}
+                  title={isSearchEnabled ? "禁用网页搜索" : "启用网页搜索"}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  {isSearchEnabled && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full"></span>
+                  )}
+                </button>
+              )}
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">

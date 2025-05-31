@@ -118,6 +118,10 @@ export default function HomePage() {
   // Ref for the abort controller to cancel API requests
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // 添加搜索相关状态
+  const [isSearchEnabled, setIsSearchEnabled] = useState(false);
+  const [searchResults, setSearchResults] = useState<any>(null);
+
   // Check for available API keys to update UI for disabled providers
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -542,9 +546,346 @@ Requirements:
     return updatedReq;
   };
 
-  // More substantially update the handleSend function to better handle thinking state
+  // 辅助函数：构建消息内容
+  const buildMessageContent = async (
+    userInput: string, 
+    files: UploadedFile[], 
+    image: string | null, 
+    currentModel: string
+  ) => {
+    let displayContent = userInput;
+    let apiContent: string | any = userInput;
+    let additionalInfo = '';
+
+    const modelInfo = MODEL_MAPPING[currentModel];
+    
+    if (files.length > 0) {
+      const imageFiles = files.filter(f => f.type.startsWith('image/'));
+      const textFiles = files.filter(f => f.content && !f.fileId && !f.fileUri);
+      const nativeDocFiles = files.filter(f => f.fileId || f.fileUri);
+      const otherFiles = files.filter(f => !f.type.startsWith('image/') && !f.content && !f.fileId && !f.fileUri);
+      
+      // 处理文本文件
+      if (textFiles.length > 0) {
+        additionalInfo += '\n\n--- 上传的文件内容 ---\n';
+        textFiles.forEach(file => {
+          additionalInfo += `\n[文件: ${file.name}]\n${file.content}\n`;
+        });
+      }
+      
+      // 处理原生文档文件
+      if (nativeDocFiles.length > 0) {
+        if (modelInfo?.supports?.documents) {
+          if (modelInfo.provider === 'google' || modelInfo.provider === 'gemini') {
+            const fileDataParts = nativeDocFiles.filter(f => f.fileUri).map(file => ({
+              file_data: { mime_type: file.type || 'application/pdf', file_uri: file.fileUri }
+            }));
+            if (fileDataParts.length > 0) {
+              apiContent = [{ type: 'text', text: userInput }, ...fileDataParts];
+              console.log('📄 Gemini文档引用构建成功:', fileDataParts.length);
+            }
+          } else if (modelInfo.provider === 'openai') {
+            const fileDataParts = nativeDocFiles.filter(f => f.fileId).map(file => ({
+              type: 'file', file: { file_id: file.fileId }
+            }));
+            if (fileDataParts.length > 0) {
+              apiContent = [{ type: 'text', text: userInput }, ...fileDataParts];
+              console.log('📄 OpenAI文档引用构建成功:', fileDataParts.length);
+            }
+          }
+          
+          // 添加文档信息到显示内容
+          additionalInfo += '\n\n--- 已上传文档 ---\n';
+          nativeDocFiles.forEach(file => {
+            if (file.fileId) additionalInfo += `[${modelInfo.provider}文件: ${file.name}, ID: ${file.fileId}]\n`;
+            else if (file.fileUri) additionalInfo += `[${modelInfo.provider}文件: ${file.name}, URI: ${file.fileUri}]\n`;
+          });
+        } else {
+          additionalInfo += '\n\n--- 文档上传警告 ---\n';
+          nativeDocFiles.forEach(file => {
+            additionalInfo += `[警告: ${file.name} 已上传但当前模型不支持原生文档处理]\n`;
+          });
+        }
+      }
+      
+      // 处理其他文件
+      if (otherFiles.length > 0) {
+        additionalInfo += '\n\n--- 其他上传文件 ---\n';
+        otherFiles.forEach(file => {
+          additionalInfo += `[文件: ${file.name}, 类型: ${file.type}, 大小: ${(file.size / 1024).toFixed(2)}KB]\n`;
+        });
+      }
+      
+      // 处理图片文件
+      if (imageFiles.length > 0) {
+        if (modelInfo?.supports?.vision) {
+          const textContent = typeof apiContent === 'string' ? apiContent : userInput;
+          const contentParts: any[] = [{ type: 'text', text: textContent }];
+          imageFiles.forEach(file => {
+            if (file.url) contentParts.push({ type: 'image_url', image_url: { url: file.url } });
+          });
+          apiContent = contentParts;
+          console.log('🖼️ 多模态图片内容构建成功:', imageFiles.length);
+        } else {
+          additionalInfo += '\n\n[注意：当前模型不支持图像理解，已上传图片但无法分析]';
+        }
+      }
+    } else if (image) {
+      // 向后兼容旧的uploadedImage逻辑
+      if (modelInfo?.supports?.vision) {
+        apiContent = [{ type: 'text', text: userInput }, { type: 'image_url', image_url: { url: image } }];
+        console.log('🖼️ 单图片内容构建成功');
+      } else {
+        additionalInfo += '\n\n[注意：当前模型不支持图像理解，图片已上传但无法分析]';
+      }
+    }
+
+    // 合并额外信息到显示内容
+    if (additionalInfo) {
+      displayContent = userInput + additionalInfo;
+    }
+
+    // 如果API内容仍然是字符串且有额外信息，合并到API内容
+    if (typeof apiContent === 'string' && additionalInfo) {
+      apiContent = userInput + additionalInfo;
+    }
+
+    return {
+      displayContent,
+      apiContent,
+      additionalInfo
+    };
+  };
+
+  // ================== 增强的搜索执行函数 ==================
+  const executeSearch = async (
+    query: string, 
+    sessionId: string,
+    files: UploadedFile[] = [],
+    imageUrl: string | null = null
+  ) => {
+    // 创建搜索状态消息
+    const searchMessageId = `search-${Date.now()}`;
+    
+    try {
+      console.log('🔍 搜索功能已启用，开始搜索...', {
+        query: query.substring(0, 100),
+        hasFiles: files.length > 0,
+        hasImage: !!imageUrl,
+        multimodal: files.length > 0 || !!imageUrl
+      });
+      
+      // 根据是否有多模态内容调整搜索状态消息
+      const searchStatusText = files.length > 0 || imageUrl 
+        ? '🔍 正在基于内容搜索相关信息...' 
+        : '🔍 正在搜索相关信息...';
+      
+      const searchMessage: Message = {
+        id: searchMessageId,
+        role: 'search',
+        content: searchStatusText,
+        isSearching: true,
+        searchQuery: query.trim()
+      };
+      addMessageToCurrentSession(searchMessage);
+      
+      // 获取Gemini API密钥用于搜索
+      const geminiApiKey = getApiKeyForProvider('google') || getApiKeyForProvider('gemini');
+      
+      if (!geminiApiKey) {
+        console.warn('⚠️ 未配置Gemini API密钥，跳过搜索');
+        updateSearchMessage(sessionId, searchMessageId, '⚠️ 搜索失败：未配置Gemini API密钥', {
+          success: false,
+          query: query.trim(),
+          results: [],
+          error: '未配置Gemini API密钥'
+        });
+        return { data: null };
+      }
+
+      // 构建多模态搜索内容
+      const searchContent = await buildMultimodalSearchContent(query, files, imageUrl);
+
+      // 执行搜索 - 支持多模态
+      const searchResponse = await fetch('/api/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: query,
+          multimodalContent: searchContent,
+          config: {
+            apiKey: geminiApiKey,
+            maxResults: 8,
+            language: 'zh-CN'
+          }
+        })
+      });
+
+      if (searchResponse.ok) {
+        const searchResultsData = await searchResponse.json();
+        console.log('✅ 搜索完成:', searchResultsData);
+
+        updateSearchMessage(sessionId, searchMessageId, '✅ 搜索完成', searchResultsData);
+        return { data: searchResultsData };
+      } else {
+        console.error('❌ 搜索失败:', await searchResponse.text());
+        updateSearchMessage(sessionId, searchMessageId, '❌ 搜索失败', {
+          success: false,
+          query: query.trim(),
+          results: [],
+          error: '搜索服务暂时不可用'
+        });
+        return { data: null };
+      }
+    } catch (searchError) {
+      console.error('❌ 搜索过程发生错误:', searchError);
+      updateSearchMessage(sessionId, searchMessageId, '❌ 搜索出错', {
+        success: false,
+        query: query.trim(),
+        results: [],
+        error: searchError instanceof Error ? searchError.message : '未知错误'
+      });
+      return { data: null };
+    }
+  };
+
+  // ================== 多模态搜索内容构建器 ==================
+  const buildMultimodalSearchContent = async (
+    query: string,
+    files: UploadedFile[],
+    imageUrl: string | null
+  ): Promise<any> => {
+    try {
+      console.log('🔗 构建多模态搜索内容:', {
+        hasQuery: !!query,
+        filesCount: files.length,
+        hasImage: !!imageUrl
+      });
+
+      // 如果没有多模态内容，返回简单文本
+      if (files.length === 0 && !imageUrl) {
+        return { text: query };
+      }
+
+      // 构建Gemini格式的多模态内容
+      const parts = [];
+
+      // 添加文本查询
+      if (query.trim()) {
+        parts.push({
+          text: `用户查询: ${query}\n\n请基于以下提供的图片和文档内容，搜索相关信息并提供准确答案：`
+        });
+      }
+
+      // 处理图片
+      if (imageUrl) {
+        console.log('🖼️ 添加图片到搜索内容');
+        // 获取图片的base64数据
+        const base64Data = imageUrl.split(',')[1];
+        const mimeType = imageUrl.match(/data:([^;]+);/)?.[1] || 'image/jpeg';
+        
+        parts.push({
+          inlineData: {
+            mimeType: mimeType,
+            data: base64Data
+          }
+        });
+      }
+
+      // 处理文件
+      for (const file of files) {
+        console.log(`📄 添加文件到搜索内容: ${file.name}`);
+        
+        if (file.fileUri) {
+          // Gemini原生文档
+          parts.push({
+            file_data: {
+              mime_type: file.type,
+              file_uri: file.fileUri
+            }
+          });
+        } else if (file.content && !file.content.startsWith('🔄') && !file.content.startsWith('❌')) {
+          // 文本内容
+          parts.push({
+            text: `文件内容 (${file.name}):\n${file.content.substring(0, 8000)}\n\n`
+          });
+        }
+      }
+
+      console.log('✅ 多模态内容构建完成:', {
+        partsCount: parts.length,
+        hasTextParts: parts.some(p => p.text),
+        hasImageParts: parts.some(p => p.inlineData),
+        hasFileParts: parts.some(p => p.file_data)
+      });
+
+      return { parts };
+
+    } catch (error) {
+      console.error('❌ 构建多模态搜索内容失败:', error);
+      // 回退到简单文本
+      return { text: query };
+    }
+  };
+
+  // 辅助函数：更新搜索消息
+  const updateSearchMessage = (sessionId: string, messageId: string, content: string, searchResults: any) => {
+    setSessions(prevSessions =>
+      prevSessions.map(s =>
+        s.id === sessionId
+          ? {
+              ...s,
+              messages: s.messages.map(m =>
+                m.id === messageId
+                  ? { 
+                      ...m, 
+                      content,
+                      isSearching: false,
+                      searchResults
+                    }
+                  : m
+              ),
+              lastUpdated: Date.now()
+            }
+          : s
+      )
+    );
+  };
+
+  // 辅助函数：合并搜索结果
+  const mergeSearchResults = async (apiContent: any, searchData: any) => {
+    try {
+      const { enhanceMessageWithSearch } = await import('../utils/llm/search');
+      
+      if (typeof apiContent === 'string') {
+        // 字符串内容直接合并
+        return enhanceMessageWithSearch(apiContent, searchData);
+      } else if (Array.isArray(apiContent)) {
+        // 复杂内容（包含文件引用），更新文本部分
+        const updatedContent = [...apiContent];
+        const textPartIndex = updatedContent.findIndex(part => part.type === 'text');
+        
+        if (textPartIndex !== -1) {
+          const originalText = updatedContent[textPartIndex].text;
+          updatedContent[textPartIndex].text = enhanceMessageWithSearch(originalText, searchData);
+          console.log('🔗 搜索结果已合并到多模态内容');
+          return updatedContent;
+        }
+      }
+      
+      console.log('⚠️ 无法合并搜索结果，使用原始内容');
+      return apiContent;
+    } catch (error) {
+      console.error('❌ 合并搜索结果失败:', error);
+      return apiContent;
+    }
+  };
+
+  // 主要的handleSend函数
   const handleSend = async () => {
-    if (!input.trim() && !uploadedImage && uploadedFiles.length === 0) return; // 确保在没有输入和文件时也不发送
+    if (!input.trim() && !uploadedImage && uploadedFiles.length === 0) return;
     if (!currentSessionId || !currentSession) {
       console.error("No current session to send message to.");
       return;
@@ -552,113 +893,23 @@ Requirements:
 
     setIsLoading(true);
     
-    // 1. 首先构建完整消息内容 (messageContent)，可能包含文本、图像和文件引用
-    let messageContent: string | any = input;
-    let additionalContent = ''; // 用于文本模式下的文件信息追加
+    // ================== 步骤1: 构建文件和图片内容 ==================
+    const originalUserInput = input;
+    let displayContent = originalUserInput;
+    let apiMessageContent: string | any = originalUserInput;
 
-    if (uploadedFiles.length > 0) {
-      const imageFiles = uploadedFiles.filter(f => f.type.startsWith('image/'));
-      const textFiles = uploadedFiles.filter(f => f.content && !f.fileId && !f.fileUri);
-      const nativeDocFiles = uploadedFiles.filter(f => f.fileId || f.fileUri);
-      const otherFiles = uploadedFiles.filter(f => !f.type.startsWith('image/') && !f.content && !f.fileId && !f.fileUri);
-      
-      if (textFiles.length > 0) {
-        additionalContent += '\n\n--- 上传的文件内容 ---\n';
-        textFiles.forEach(file => {
-          additionalContent += `\n[文件: ${file.name}]\n${file.content}\n`;
-        });
-      }
-      
-      if (nativeDocFiles.length > 0) {
-        const modelInfo = MODEL_MAPPING[model];
-        if (modelInfo?.supports?.documents) {
-          if (modelInfo.provider === 'google' || modelInfo.provider === 'gemini') {
-            const fileDataParts = nativeDocFiles.filter(f => f.fileUri).map(file => ({
-              file_data: { mime_type: file.type || 'application/pdf', file_uri: file.fileUri }
-            }));
-            if (fileDataParts.length > 0) {
-              messageContent = [{ type: 'text', text: input }, ...fileDataParts];
-              console.log('🔍 Gemini多模态消息内容构建成功:', { partsCount: fileDataParts.length, fileDataParts, messageContent });
-            } else {
-              nativeDocFiles.forEach(file => { if (file.fileUri) additionalContent += `[Gemini文件: ${file.name}, URI: ${file.fileUri}]\n`; });
-            }
-          } else if (modelInfo.provider === 'openai') {
-            const fileDataParts = nativeDocFiles.filter(f => f.fileId).map(file => ({
-              type: 'file', file: { file_id: file.fileId }
-            }));
-            if (fileDataParts.length > 0) {
-              messageContent = [{ type: 'text', text: input }, ...fileDataParts];
-              console.log('🔍 OpenAI多模态消息内容构建成功:', { partsCount: fileDataParts.length, fileDataParts, messageContent });
-            } else {
-              nativeDocFiles.forEach(file => { if (file.fileId) additionalContent += `[OpenAI文件: ${file.name}, ID: ${file.fileId}]\n`; });
-            }
-          } else {
-            additionalContent += '\n\n--- 已上传文档 ---\n';
-            nativeDocFiles.forEach(file => {
-              if (file.fileId) additionalContent += `[${modelInfo.provider}文件: ${file.name}, ID: ${file.fileId}]\n`;
-              else if (file.fileUri) additionalContent += `[${modelInfo.provider}文件: ${file.name}, URI: ${file.fileUri}]\n`;
-            });
-          }
-        } else {
-          additionalContent += '\n\n--- 文档上传警告 ---\n';
-          nativeDocFiles.forEach(file => { additionalContent += `[警告: ${file.name} 已上传但当前模型不支持原生文档处理]\n`; });
-        }
-      }
-      
-      if (otherFiles.length > 0) {
-        additionalContent += '\n\n--- 其他上传文件 ---\n';
-        otherFiles.forEach(file => { additionalContent += `[文件: ${file.name}, 类型: ${file.type}, 大小: ${(file.size / 1024).toFixed(2)}KB]\n`; });
-      }
-      
-      if (imageFiles.length > 0) {
-        const modelInfo = MODEL_MAPPING[model];
-        if (modelInfo?.supports?.vision) {
-          const textPartForImage = (typeof messageContent === 'string' && messageContent !== input) ? messageContent : input + additionalContent;
-          const contentParts: any[] = [{ type: 'text', text: textPartForImage }];
-          imageFiles.forEach(file => { if (file.url) contentParts.push({ type: 'image_url', image_url: { url: file.url } }); });
-          messageContent = contentParts;
-        } else {
-          additionalContent += '\n\n[注意：当前模型不支持图像理解，已上传图片但无法分析]';
-        }
-      }
-      
-      // 如果messageContent仍然是初始的input，并且有additionalContent，则合并它们
-      if (typeof messageContent === 'string' && messageContent === input && additionalContent) {
-        messageContent = input + additionalContent;
-      } else if (Array.isArray(messageContent) && additionalContent) {
-        // 如果已经是数组（例如文件parts构建的），并且还有其他纯文本文件信息，需要确保文本部分包含additionalContent
-        const textPartIndex = messageContent.findIndex(part => part.type === 'text');
-        if (textPartIndex !== -1) {
-          messageContent[textPartIndex].text += additionalContent;
-        } else {
-          // Prepend additional text if no text part found (should not happen with current logic)
-           messageContent.unshift({ type: 'text', text: additionalContent.trim() });
-        }
-      }
-
-
-    } else if (uploadedImage) { // 向后兼容旧的uploadedImage逻辑
-      const modelInfo = MODEL_MAPPING[model];
-      if (modelInfo?.supports?.vision) {
-        messageContent = [{ type: 'text', text: input }, { type: 'image_url', image_url: { url: uploadedImage } }];
-      } else {
-        messageContent = input + '\n\n[注意：当前模型不支持图像理解，图片已上传但无法分析]';
-      }
+    // 处理上传的文件和图片
+    if (uploadedFiles.length > 0 || uploadedImage) {
+      const result = await buildMessageContent(originalUserInput, uploadedFiles, uploadedImage, model);
+      apiMessageContent = result.apiContent;
+      displayContent = result.displayContent;
     }
-    // At this point, messageContent is fully constructed.
 
-    // 2. 创建用户消息对象，使用显示友好的字符串内容
-    // 为UI显示创建字符串版本的内容
-    let displayContent = input;
-    if (additionalContent) {
-      displayContent = input + additionalContent;
-    }
-    
+    // ================== 步骤2: 显示用户消息 ==================
     const userMessageForSession: Message = {
       id: `msg-${Date.now()}`,
       role: 'user',
-      content: displayContent, // 用于UI显示的字符串内容
-      // 保存文件信息用于重新生成时的引用
+      content: displayContent,
       ...(uploadedFiles.length > 0 && { files: uploadedFiles }),
       ...(uploadedImage && { imageUrl: uploadedImage })
     };
@@ -668,7 +919,20 @@ Requirements:
     setUploadedImage(null);
     setUploadedFiles([]);
 
-    // 3. 创建助理消息占位符
+    // ================== 步骤3: 处理搜索功能 ==================
+    let finalApiContent = apiMessageContent;
+
+    if (isSearchEnabled && originalUserInput.trim()) {
+      const searchResult = await executeSearch(originalUserInput, currentSessionId, uploadedFiles, uploadedImage);
+      
+      // 如果搜索成功，合并搜索结果到API内容
+      if (searchResult.data?.success && searchResult.data.summary) {
+        finalApiContent = await mergeSearchResults(apiMessageContent, searchResult.data);
+      }
+    }
+
+    // ================== 步骤4: 创建AI响应并发送 ==================
+    // 创建助理消息占位符
     const assistantMessageId = `msg-${Date.now()}-assistant`;
     const assistantMessagePlaceholder: Message = {
       id: assistantMessageId,
@@ -684,14 +948,21 @@ Requirements:
     let reasoningBuffer = '';
 
     try {
-      // 4. 构建发送到API的最终消息数组，使用复杂的消息内容（包含文件引用）
-      const apiMessages = currentSession.messages.map(m => ({ role: m.role, content: m.content }));
-      // 为API调用添加包含文件引用的用户消息
-      apiMessages.push({ role: 'user', content: messageContent });
+      // 构建发送到API的最终消息数组
+      const apiMessages = currentSession.messages
+        .filter((m: Message) => m.role !== 'search') // 过滤掉搜索消息，不发送给AI
+        .map((m: Message) => ({ role: m.role, content: m.content }));
       
-      console.log('🔍 最终发送的消息数组:', apiMessages);
-      console.log('🔍 用户消息内容类型:', typeof messageContent);
-      console.log('🔍 用户消息内容:', messageContent);
+      // 为API调用添加当前用户消息
+      apiMessages.push({ role: 'user', content: finalApiContent });
+      
+      console.log('🔍 最终发送的消息数组:', {
+        messagesCount: apiMessages.length,
+        lastMessageType: typeof finalApiContent,
+        model: model,
+        hasFiles: uploadedFiles.length > 0,
+        hasSearch: isSearchEnabled
+      });
       
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -702,7 +973,7 @@ Requirements:
         body: JSON.stringify(
           addApiKeyToRequest({
             model: currentSession.model || model,
-            messages: apiMessages, // 使用包含文件引用的消息数组
+            messages: apiMessages,
             stream: true,
             ...advancedSettings,
           } as LLMRequest)
@@ -916,7 +1187,6 @@ Requirements:
           message: error.message,
           stack: error.stack,
           userAgent: navigator.userAgent,
-          uploadedFilesCount: uploadedFiles.length,
           hasUploadedImage: !!uploadedImage
         });
         const errorMessage = `Error: ${error.message || 'Failed to get response.'}`;
@@ -933,7 +1203,7 @@ Requirements:
       setIsLoading(false);
     }
   };
-  
+
   const handleCancel = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -1662,6 +1932,8 @@ Requirements:
               currentModel={model}
               uploadedFiles={uploadedFiles}
               onRemoveFile={handleRemoveFile}
+              onSearchToggle={setIsSearchEnabled}
+              isSearchEnabled={isSearchEnabled}
             />
           </div>
         </div>

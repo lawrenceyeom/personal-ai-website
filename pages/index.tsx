@@ -33,50 +33,101 @@ function saveSessions(sessions: ChatSession[]) {
       if (error.name === 'QuotaExceededError') {
         console.warn('LocalStorage quota exceeded, attempting to clean up old sessions...');
         
-        // 尝试清理策略
+        // 🔧 智能清理策略 - 按优先级顺序执行
         try {
-          // 1. 首先删除已归档的会话
+          // 策略1: 首先删除已归档的会话
           const archivedSessions = sessions.filter(s => s.archived);
           if (archivedSessions.length > 0) {
             const cleanedSessions = sessions.filter(s => !s.archived);
             localStorage.setItem('chat_sessions', JSON.stringify(cleanedSessions));
-            console.log(`Cleaned ${archivedSessions.length} archived sessions`);
+            console.log(`✅ 清理策略1: 删除了 ${archivedSessions.length} 个归档会话`);
             return;
           }
           
-          // 2. 如果没有归档会话，删除最旧的非当前会话
-          if (sessions.length > 10) {
+          // 策略2: 如果会话数量过多（>20），保留最近的20个会话
+          if (sessions.length > 20) {
             const sortedSessions = [...sessions].sort((a, b) => b.lastUpdated - a.lastUpdated);
-            const recentSessions = sortedSessions.slice(0, 10);
+            const recentSessions = sortedSessions.slice(0, 20);
             localStorage.setItem('chat_sessions', JSON.stringify(recentSessions));
-            console.log(`Kept only ${recentSessions.length} most recent sessions`);
+            console.log(`✅ 清理策略2: 保留最近的20个会话，删除了 ${sessions.length - recentSessions.length} 个旧会话`);
             return;
           }
           
-          // 3. 最后手段：清理会话中的长消息内容
+          // 策略3: 清理每个会话中的长消息内容（只保留前800字符）
           const compactSessions = sessions.map(session => ({
             ...session,
             messages: session.messages.map(msg => ({
               ...msg,
-              content: typeof msg.content === 'string' && msg.content.length > 1000 
-                ? msg.content.substring(0, 1000) + '...[truncated]'
+              content: typeof msg.content === 'string' && msg.content.length > 800 
+                ? msg.content.substring(0, 800) + '...[自动截断以节省空间]'
                 : msg.content,
-              thinking: msg.thinking && msg.thinking.length > 500 
-                ? msg.thinking.substring(0, 500) + '...[truncated]'
-                : msg.thinking
+              thinking: msg.thinking && msg.thinking.length > 400 
+                ? msg.thinking.substring(0, 400) + '...[思考过程已截断]'
+                : msg.thinking,
+              // 🔧 清理搜索结果数据以节省空间
+              searchResults: msg.searchResults ? {
+                ...msg.searchResults,
+                results: msg.searchResults.results?.slice(0, 3) || [], // 只保留前3个搜索结果
+                summary: msg.searchResults.summary && msg.searchResults.summary.length > 300
+                  ? msg.searchResults.summary.substring(0, 300) + '...[摘要已截断]'
+                  : msg.searchResults.summary
+              } : undefined
             }))
           }));
+          
           localStorage.setItem('chat_sessions', JSON.stringify(compactSessions));
-          console.log('Compacted session data by truncating long messages');
+          console.log('✅ 清理策略3: 压缩消息内容，截断长文本和搜索结果');
+          
+          // 🔧 显示用户友好的提示
+          setTimeout(() => {
+            alert(
+              '📦 存储空间优化完成\n\n' +
+              '由于存储空间限制，系统已自动：\n' +
+              '• 压缩了长消息内容\n' +
+              '• 精简了搜索结果数据\n' +
+              '• 保留了会话的核心信息\n\n' +
+              '建议定期清理不需要的会话以获得更好的性能。'
+            );
+          }, 500);
           
         } catch (retryError) {
           console.error('Failed to clean up localStorage:', retryError);
-          // 清理失败，清空所有会话数据
-          localStorage.removeItem('chat_sessions');
-          alert('存储空间不足，已清空历史会话。请刷新页面重新开始。');
+          
+          // 🔧 最终备用方案：渐进式清理
+          try {
+            // 尝试删除最旧的一半会话
+            const sortedSessions = [...sessions].sort((a, b) => b.lastUpdated - a.lastUpdated);
+            const halfSessions = sortedSessions.slice(0, Math.ceil(sessions.length / 2));
+            localStorage.setItem('chat_sessions', JSON.stringify(halfSessions));
+            
+            console.log(`⚠️ 备用清理: 保留了最近的 ${halfSessions.length} 个会话`);
+            alert(
+              '⚠️ 存储空间严重不足\n\n' +
+              `已删除较旧的 ${sessions.length - halfSessions.length} 个会话，\n` +
+              `保留了最近的 ${halfSessions.length} 个会话。\n\n` +
+              '请考虑定期备份重要的对话内容。'
+            );
+            
+          } catch (finalError) {
+            console.error('Final cleanup attempt failed:', finalError);
+            // 最后的手段：清空所有会话数据
+            localStorage.removeItem('chat_sessions');
+            alert(
+              '🚨 存储空间清理失败\n\n' +
+              '由于存储限制，已清空所有历史会话。\n' +
+              '请刷新页面重新开始，并考虑：\n' +
+              '• 定期导出重要对话\n' +
+              '• 及时清理不需要的会话\n' +
+              '• 避免保存过长的对话内容'
+            );
+          }
         }
       } else {
         console.error('Error saving sessions:', error);
+        // 🔧 其他类型的存储错误处理
+        if (error.message.includes('security') || error.message.includes('private')) {
+          console.warn('存储被阻止，可能是隐私模式或安全设置');
+        }
       }
     }
   }
@@ -147,14 +198,14 @@ export default function HomePage() {
         
         setDisabledProviders(newDisabled);
 
-        // 检查localStorage使用情况（添加防死循环逻辑）
+        // 🔧 优化localStorage使用情况检测
         try {
-          // 检查是否在最近5分钟内已经显示过警告
+          // 🔧 增加防重复时间间隔为30分钟，减少频繁检测
           const lastWarningTime = localStorage.getItem('last_memory_warning');
-          const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+          const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000); // 30分钟
           
-          if (lastWarningTime && parseInt(lastWarningTime) > fiveMinutesAgo) {
-            console.log('⏰ 内存警告已在最近5分钟内显示过，跳过检测');
+          if (lastWarningTime && parseInt(lastWarningTime) > thirtyMinutesAgo) {
+            console.log('⏰ 内存警告已在最近30分钟内显示过，跳过检测');
             return;
           }
           
@@ -163,25 +214,59 @@ export default function HomePage() {
             const sizeInBytes = new Blob([sessionsData]).size;
             const sizeInMB = sizeInBytes / (1024 * 1024);
             
-            // 估算localStorage配额（通常是5-10MB）
-            const estimatedQuotaMB = 5;
+            // 🔧 智能估算localStorage配额（更准确的估算，针对多媒体内容优化）
+            let estimatedQuotaMB = 20; // 🔧 提高默认值到20MB，适应多媒体文件存储
+            
+            // 根据浏览器类型进行更精确的配额估算
+            try {
+              if (navigator.storage && navigator.storage.estimate) {
+                // 对于支持Storage API的现代浏览器，使用实际配额
+                navigator.storage.estimate().then(estimate => {
+                  if (estimate.quota) {
+                    const actualQuotaMB = estimate.quota / (1024 * 1024);
+                    // 🔧 localStorage通常是总配额的约10%，但至少20MB用于多媒体存储
+                    const localStorageQuota = Math.max(actualQuotaMB * 0.1, 20);
+                    estimatedQuotaMB = Math.min(localStorageQuota, 100); // 最大100MB
+                    console.log(`📊 Storage API检测: 总配额${actualQuotaMB.toFixed(2)}MB, LocalStorage估算${estimatedQuotaMB.toFixed(2)}MB`);
+                  }
+                });
+              } else {
+                // 对于不支持的浏览器，基于用户代理字符串估算（针对多媒体优化）
+                const userAgent = navigator.userAgent.toLowerCase();
+                if (userAgent.includes('chrome') || userAgent.includes('edge')) {
+                  estimatedQuotaMB = 50; // 🔧 Chrome/Edge提高到50MB，支持更多图片文件
+                } else if (userAgent.includes('firefox')) {
+                  estimatedQuotaMB = 40; // 🔧 Firefox提高到40MB
+                } else if (userAgent.includes('safari')) {
+                  estimatedQuotaMB = 25; // 🔧 Safari提高到25MB，仍然相对保守
+                } else if (userAgent.includes('opera')) {
+                  estimatedQuotaMB = 35; // 🔧 Opera提高到35MB
+                } else {
+                  estimatedQuotaMB = 20; // 🔧 其他浏览器默认20MB
+                }
+              }
+            } catch (quotaError) {
+              console.warn('无法获取准确的存储配额，使用默认值:', quotaError);
+            }
+            
             const usagePercentage = (sizeInMB / estimatedQuotaMB) * 100;
             
-            console.log(`📊 LocalStorage usage: ${sizeInMB.toFixed(2)}MB (${usagePercentage.toFixed(1)}%)`);
+            console.log(`📊 LocalStorage usage: ${sizeInMB.toFixed(2)}MB / ${estimatedQuotaMB}MB (${usagePercentage.toFixed(1)}%)`);
             
-            // 当使用超过80%时警告用户
-            if (usagePercentage > 80) {
+            // 🔧 提高警告阈值：90%时控制台警告，95%时用户提示
+            if (usagePercentage > 90) {
               console.warn('⚠️ LocalStorage usage high, consider clearing old sessions');
               
-              // 当使用超过90%时显示用户提示（添加防重复逻辑）
-              if (usagePercentage > 90 && !hasShownMemoryWarning) {
+              // 🔧 当使用超过95%时显示用户提示（提高阈值减少频繁弹窗）
+              if (usagePercentage > 95 && !hasShownMemoryWarning) {
                 setHasShownMemoryWarning(true);
                 
                 setTimeout(() => {
                   const shouldClean = confirm(
-                    `存储空间使用率已达 ${usagePercentage.toFixed(1)}%\n\n` +
-                    `为了避免数据丢失，建议清理一些旧的会话记录。\n\n` +
-                    `是否现在清理已归档的会话？`
+                    `⚠️ 存储空间警告 ⚠️\n\n` +
+                    `当前使用率: ${usagePercentage.toFixed(1)}% (${sizeInMB.toFixed(2)}MB / ${estimatedQuotaMB}MB)\n\n` +
+                    `存储空间即将用完，为避免数据丢失，建议清理一些旧的会话记录。\n\n` +
+                    `点击"确定"清理已归档的会话，或"取消"手动管理。`
                   );
                   
                   if (shouldClean) {
@@ -190,21 +275,39 @@ export default function HomePage() {
                     
                     const currentSessions = JSON.parse(localStorage.getItem('chat_sessions') || '[]');
                     const cleanedSessions = currentSessions.filter((s: ChatSession) => !s.archived);
-                    localStorage.setItem('chat_sessions', JSON.stringify(cleanedSessions));
                     
-                    // 显示清理结果并刷新页面
-                    const cleanedCount = currentSessions.length - cleanedSessions.length;
-                    if (cleanedCount > 0) {
-                      alert(`✅ 已清理 ${cleanedCount} 个归档会话，释放存储空间。`);
+                    // 🔧 如果没有归档会话，提供额外的清理选项
+                    if (cleanedSessions.length === currentSessions.length) {
+                      const shouldCleanOld = confirm(
+                        '没有找到归档会话可清理。\n\n' +
+                        '是否删除最旧的一半会话以释放空间？\n\n' +
+                        '（将保留最近的会话记录）'
+                      );
+                      
+                      if (shouldCleanOld) {
+                        const sortedSessions = [...currentSessions].sort((a, b) => b.lastUpdated - a.lastUpdated);
+                        const keepCount = Math.ceil(sortedSessions.length / 2);
+                        const keptSessions = sortedSessions.slice(0, keepCount);
+                        localStorage.setItem('chat_sessions', JSON.stringify(keptSessions));
+                        
+                        const deletedCount = currentSessions.length - keptSessions.length;
+                        alert(`✅ 已删除 ${deletedCount} 个旧会话，保留了 ${keptSessions.length} 个最近会话。`);
+                        location.reload();
+                        return;
+                      }
                     } else {
-                      alert('💡 没有找到归档会话可清理。建议手动删除一些不需要的会话。');
+                      localStorage.setItem('chat_sessions', JSON.stringify(cleanedSessions));
+                      
+                      // 显示清理结果并刷新页面
+                      const cleanedCount = currentSessions.length - cleanedSessions.length;
+                      alert(`✅ 已清理 ${cleanedCount} 个归档会话，释放存储空间。`);
+                      location.reload();
+                      return;
                     }
-                    
-                    location.reload(); // 刷新页面以加载清理后的数据
-                  } else {
-                    // 用户点击取消，记录警告时间避免频繁弹窗
-                    localStorage.setItem('last_memory_warning', Date.now().toString());
                   }
+                  
+                  // 用户点击取消，记录警告时间避免频繁弹窗
+                  localStorage.setItem('last_memory_warning', Date.now().toString());
                 }, 1000);
               }
             }
